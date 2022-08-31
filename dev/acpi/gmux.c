@@ -3,8 +3,8 @@
 
 #include <dev/acpi/amltypes.h>
 #include <dev/acpi/acpivar.h>
-//#include <dev/acpi/acpidev.h>
-//#include <dev/acpi/dsdt.h>
+#include <dev/acpi/acpidev.h>
+#include <dev/acpi/dsdt.h>
 
 #ifdef GMUX_DEBUG
 #define DPRINTF(x) printf x
@@ -55,10 +55,22 @@ gmux_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct gmux_softc *sc = (struct gmux_softc *)self;
 	struct acpi_attach_args *aaa = aux;
+	struct aml_value res;
+	int64_t sta;
 
 	sc->sc_acpi = (struct acpi_softc *)parent;
 	sc->sc_devnode = aaa->aaa_node;
 
 	printf(": %s", sc->sc_devnode->name);
-}
 
+        sta = acpi_getsta(sc->sc_acpi, sc->sc_devnode);
+	if ((sta & (STA_PRESENT | STA_ENABLED | STA_DEV_OK)) !=
+	    (STA_PRESENT | STA_ENABLED | STA_DEV_OK)) {
+		printf(": not enabled\n");
+		return;
+	}
+
+	if (!(aml_evalname(sc->sc_acpi, sc->sc_devnode, "_CID", 0, NULL, &res)))
+		printf(" (%s)", res.v_string);
+	printf("\n");
+}

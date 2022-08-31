@@ -1,15 +1,10 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 
-#include <dev/acpi/acpivar.h>
-#include <dev/acpi/acpidev.h>
 #include <dev/acpi/amltypes.h>
-#include <dev/acpi/dsdt.h>
-
-#include <dev/pci/pcidevs.h>
-
-#include <dev/wscons/wsconsio.h>
-#include <dev/wscons/wsdisplayvar.h>
+#include <dev/acpi/acpivar.h>
+//#include <dev/acpi/acpidev.h>
+//#include <dev/acpi/dsdt.h>
 
 #ifdef GMUX_DEBUG
 #define DPRINTF(x) printf x
@@ -28,7 +23,7 @@ struct gmux_softc {
 
 	bus_addr_t		 sc_io_base;
 	uint8_t			 sc_brightness;
-;
+};
 
 int	gmux_match(struct device *, void *, void *);
 void	gmux_attach(struct device *, struct device *, void *);
@@ -42,36 +37,28 @@ struct cfdriver gmux_cd = {
 };
 
 const char *gmux_hids[] = {
-	"APP0002", NULL
+	"APP000B", NULL
 };
 
 int
 gmux_match(struct device *parent, void *match, void *aux)
 {
-	/*
 	struct acpi_attach_args *aa = aux;
 	struct cfdata *cf = match;
 	
 	return acpi_matchhids(aa, gmux_hids, cf->cf_driver->cd_name);
-	*/
+	
 }
 
 void
 gmux_attach(struct device *parent, struct device *self, void *aux)
 {
-	/*
 	struct gmux_softc *sc = (struct gmux_softc *)self;
 	struct acpi_attach_args *aaa = aux;
-	struct aml_value res;
-	int64_t sta;
-	int reg;
-	pci_chipset_tag_t pc;
-	pcitag_t tag;
 
 	sc->sc_acpi = (struct acpi_softc *)parent;
 	sc->sc_devnode = aaa->aaa_node;
 
 	printf(": %s", sc->sc_devnode->name);
-	*/
 }
 

@@ -90,6 +90,11 @@ device	abl
 attach	abl at acpi
 file	dev/acpi/abl.c			abl
 
+# LeoMoreno
+device  gmux
+attach  gmux at acpi
+file	dev/acpi/gmux.c			gmux
+
 # Apple System Management Controller (SMC)
 device	asmc
 attach	asmc at acpi

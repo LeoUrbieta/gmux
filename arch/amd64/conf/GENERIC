@@ -82,6 +82,7 @@ tpm*		at acpi?
 acpihve*	at acpi?
 acpisurface*	at acpi?
 acpihid*	at acpi?
+gmux*		at acpi?        # LeoMoreno
 ipmi0		at acpi? disable
 ccpmic*		at iic?
 tipmic*		at iic?

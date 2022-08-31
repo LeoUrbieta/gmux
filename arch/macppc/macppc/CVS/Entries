@@ -1,0 +1,20 @@
+/autoconf.c/1.46/Tue Sep  3 17:51:52 2019//
+/conf.c/1.74/Thu Nov 11 10:03:09 2021//
+/cpu.c/1.85/Sun Mar 13 12:33:01 2022//
+/disksubr.c/1.82/Tue Feb 28 10:49:37 2017//
+/genassym.cf/1.26/Mon Jan 22 10:04:46 2018//
+/locore.S/1.58/Sat Nov 28 19:49:30 2020//
+/locore0.S/1.2/Tue Sep  3 14:37:22 2019//
+/mainbus.c/1.27/Sun Mar 13 12:33:01 2022//
+/mem.c/1.28/Sun Mar 13 12:33:01 2022//
+/ofw_machdep.c/1.64/Thu Mar 11 11:16:59 2021//
+/ofw_machdep.h/1.10/Thu Apr  2 19:27:51 2020//
+/ofwreal.S/1.8/Sun Jan  2 23:31:10 2022//
+/opendev.c/1.10/Thu Apr  2 19:27:51 2020//
+/openfirm.c/1.13/Thu Apr  2 19:27:51 2020//
+/openprom.c/1.5/Mon Sep 21 16:33:23 2020//
+/rbus_machdep.c/1.13/Wed Aug  7 07:29:19 2013//
+/wscons_machdep.c/1.6/Wed Jan 23 16:37:56 2008//
+/machdep.c/1.196/Sat May 21 15:15:11 2022//
+/clock.c/1.49/Sun Jul 31 23:28:40 2022//
+D

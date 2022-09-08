@@ -42,12 +42,8 @@
 #define GMUX_INTERRUPT_STATUS_POWER	(1 << 2)
 #define GMUX_INTERRUPT_STATUS_HOTPLUG	(1 << 3)
 
-#define GMUX_BRIGHTNESS_MASK		0x00ffffff
-#define GMUX_MAX_BRIGHTNESS		GMUX_BRIGHTNESS_MASK
-
 #define GMUX_MIN_BRIGHTNESS		0
-#define GMUX_MAPPED_MAX_BRIGHTNESS	1024
-#define GMUX_REAL_MAX_BRIGHTNESS	1024
+#define GMUX_MAX_BRIGHTNESS		1023
 
 struct gmux_softc {
 	struct device		 sc_dev;
@@ -68,8 +64,6 @@ void    gmux_ready(struct gmux_softc *);
 void 	gmux_version(struct gmux_softc *, int);
 int	gmux_get_brightness(struct gmux_softc *);
 void    gmux_set_brightness(struct gmux_softc *,uint32_t);
-int 	map_value(uint32_t);
-int     inverse_map_value(int);
 
 /* Hooks for wsconsole brightness control. */
 int	gmux_get_param(struct wsdisplay_param *);
@@ -104,7 +98,6 @@ gmux_attach(struct device *parent, struct device *self, void *aux)
 	struct acpi_attach_args *aaa = aux;
 	struct aml_value res;
 	int64_t sta;
-	uint8_t data;
 	uint16_t val;
 
 	sc->sc_acpi = (struct acpi_softc *)parent;
@@ -122,6 +115,11 @@ gmux_attach(struct device *parent, struct device *self, void *aux)
 	if (!(aml_evalname(sc->sc_acpi, sc->sc_devnode, "_CID", 0, NULL, &res)))
 		printf(" (%s)", res.v_string);
 
+	if (strncmp(hw_prod, "MacBookPro11,5", 14)){
+		printf("\n");
+		return;
+	}
+
 	sc->sc_iot = aaa->aaa_iot;
 	if (bus_space_map(sc->sc_iot, aaa->aaa_addr[0], aaa->aaa_size[0], 0,
 	    &sc->sc_ioh)) {
@@ -134,18 +132,16 @@ gmux_attach(struct device *parent, struct device *self, void *aux)
 	bus_space_write_1(sc->sc_iot,sc->sc_ioh,0xce,0x00);
 
 	val = bus_space_read_2(sc->sc_iot,sc->sc_ioh,0xcc) | (bus_space_read_1(sc->sc_iot,sc->sc_ioh,0xcd) << 8); 
-	if(val == 0x55aa){
-		printf("\nEsta indexado");
-	}
+	if(!(val == 0x55aa))
+		return
 
 	gmux_ready(sc);
 	gmux_version(sc,GMUX_PORT_VERSION_MAJOR);
+	gmux_complete(sc);
 	
-	data = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
-	if(data){
-		sc->sc_brightness = GMUX_MAPPED_MAX_BRIGHTNESS;
-		printf("\nIluminacion actual: 0x%x",sc->sc_brightness);	
-	}
+	gmux_ready(sc);
+	sc->sc_brightness = gmux_get_brightness(sc);
+	gmux_complete(sc);
 
 	/* Map wsconsole hook functions. */
 	ws_get_param = gmux_get_param;
@@ -206,21 +202,11 @@ int gmux_get_brightness(struct gmux_softc *sc){
 
 void gmux_set_brightness(struct gmux_softc *sc, uint32_t brightness){
 	
-	//int i;
-	uint8_t data;
-	/*
-	for(i=0;i<4;i++){
-		store_val = (brightness >> 8 * i) & 0xff;
-		bus_space_write_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_VALUE + i,store_val);
-	}*/
-
 	bus_space_write_4(sc->sc_iot,sc->sc_ioh,GMUX_PORT_VALUE,brightness);
 	
-	data = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
-	if(data){
-		bus_space_write_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE,GMUX_PORT_BRIGHTNESS);
-		gmux_complete(sc);
-	}
+	gmux_ready(sc);
+	bus_space_write_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE,GMUX_PORT_BRIGHTNESS);
+	gmux_complete(sc);
 }
 
 int gmux_get_param(struct wsdisplay_param *dp)
@@ -232,12 +218,11 @@ int gmux_get_param(struct wsdisplay_param *dp)
 	
 	switch (dp->param) {
 	case WSDISPLAYIO_PARAM_BACKLIGHT:
-		printf("gmux_get_param: sc->sc_brightness = %d\n",
-		    sc->sc_brightness);
+		DPRINTF(("gmux_get_param: sc->sc_brightness = %d\n",
+		    sc->sc_brightness));
 		dp->min = GMUX_MIN_BRIGHTNESS;
-		dp->max = GMUX_MAPPED_MAX_BRIGHTNESS;
-		dp->curval = map_value(sc->sc_brightness);
-		printf("dp->curval es: %d\n",dp->curval);
+		dp->max = GMUX_MAX_BRIGHTNESS;
+		dp->curval = sc->sc_brightness;
 		return 0;
 	default:
 		return -1;
@@ -254,25 +239,15 @@ int gmux_set_param(struct wsdisplay_param *dp)
 
 	switch (dp->param) {
 	case WSDISPLAYIO_PARAM_BACKLIGHT:
-		printf("gmux_set_param: curval = %d\n", dp->curval);
+		DPRINTF(("gmux_set_param: curval = %d\n", dp->curval));
 		if (dp->curval < GMUX_MIN_BRIGHTNESS)
 			dp->curval = 0;
-		if (dp->curval > GMUX_MAPPED_MAX_BRIGHTNESS)
-			dp->curval = GMUX_MAPPED_MAX_BRIGHTNESS;
-		printf("inverse_map_value es = %d\n",inverse_map_value(dp->curval));
-		gmux_set_brightness(sc, inverse_map_value(dp->curval));
-		sc->sc_brightness = inverse_map_value(dp->curval);
+		if (dp->curval > GMUX_MAX_BRIGHTNESS)
+			dp->curval = GMUX_MAX_BRIGHTNESS;
+		gmux_set_brightness(sc,dp->curval);
+		sc->sc_brightness = dp->curval;
 		return 0;
 	default:
 		return -1;
 	}
-}
-
-
-int map_value(uint32_t brightness){
-	return (int)((GMUX_MAPPED_MAX_BRIGHTNESS * ((float)brightness / (float)GMUX_REAL_MAX_BRIGHTNESS)));
-}
-
-int inverse_map_value(int brightness) {
-	return (int)(((float)brightness / (float)GMUX_MAPPED_MAX_BRIGHTNESS) * GMUX_REAL_MAX_BRIGHTNESS);
 }

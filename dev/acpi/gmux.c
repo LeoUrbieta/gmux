@@ -46,8 +46,8 @@
 #define GMUX_MAX_BRIGHTNESS		GMUX_BRIGHTNESS_MASK
 
 #define GMUX_MIN_BRIGHTNESS		0
-#define GMUX_MAPPED_MAX_BRIGHTNESS	1000
-#define GMUX_REAL_MAX_BRIGHTNESS	67113984
+#define GMUX_MAPPED_MAX_BRIGHTNESS	1024
+#define GMUX_REAL_MAX_BRIGHTNESS	1024
 
 struct gmux_softc {
 	struct device		 sc_dev;
@@ -64,11 +64,12 @@ struct gmux_softc {
 int	gmux_match(struct device *, void *, void *);
 void	gmux_attach(struct device *, struct device *, void *);
 void    gmux_complete(struct gmux_softc *);
+void    gmux_ready(struct gmux_softc *);
 void 	gmux_version(struct gmux_softc *, int);
 int	gmux_get_brightness(struct gmux_softc *);
 void    gmux_set_brightness(struct gmux_softc *,uint32_t);
 int 	map_value(uint32_t);
-int     inverse_map_value(uint32_t);
+int     inverse_map_value(int);
 
 /* Hooks for wsconsole brightness control. */
 int	gmux_get_param(struct wsdisplay_param *);
@@ -137,24 +138,14 @@ gmux_attach(struct device *parent, struct device *self, void *aux)
 		printf("\nEsta indexado");
 	}
 
-	data = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
-	if(data){
-		gmux_version(sc,GMUX_PORT_VERSION_MAJOR);
-       	}
+	gmux_ready(sc);
+	gmux_version(sc,GMUX_PORT_VERSION_MAJOR);
 	
 	data = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
 	if(data){
-		sc->sc_brightness = gmux_get_brightness(sc);
+		sc->sc_brightness = GMUX_MAPPED_MAX_BRIGHTNESS;
 		printf("\nIluminacion actual: 0x%x",sc->sc_brightness);	
 	}
-/*
-	gmux_set_brightness(sc,0x200A00);
-	data = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
-	if(data){
-		printf("\nIluminacion actual: 0x%x",gmux_get_brightness(sc));	
-	
-	}
-	*/
 
 	/* Map wsconsole hook functions. */
 	ws_get_param = gmux_get_param;
@@ -180,6 +171,18 @@ void gmux_complete(struct gmux_softc *sc){
 
 }
 
+void gmux_ready(struct gmux_softc *sc){
+	int counter = 50;
+	uint8_t ready;
+	ready = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
+	while(counter && (ready & 0x01)){
+		bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_READ);
+		ready = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
+		delay(10);
+		counter--;
+	}
+}
+
 void gmux_version(struct gmux_softc *sc, int port){
 
 	uint32_t version;
@@ -203,20 +206,21 @@ int gmux_get_brightness(struct gmux_softc *sc){
 
 void gmux_set_brightness(struct gmux_softc *sc, uint32_t brightness){
 	
-	int i;
-	uint8_t store_val, data;
-
+	//int i;
+	uint8_t data;
+	/*
 	for(i=0;i<4;i++){
 		store_val = (brightness >> 8 * i) & 0xff;
 		bus_space_write_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_VALUE + i,store_val);
-	}
+	}*/
 
+	bus_space_write_4(sc->sc_iot,sc->sc_ioh,GMUX_PORT_VALUE,brightness);
+	
 	data = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
 	if(data){
 		bus_space_write_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE,GMUX_PORT_BRIGHTNESS);
 		gmux_complete(sc);
 	}
-
 }
 
 int gmux_get_param(struct wsdisplay_param *dp)
@@ -225,7 +229,7 @@ int gmux_get_param(struct wsdisplay_param *dp)
 
 	if (sc == NULL)
 		return -1;
-
+	
 	switch (dp->param) {
 	case WSDISPLAYIO_PARAM_BACKLIGHT:
 		printf("gmux_get_param: sc->sc_brightness = %d\n",
@@ -255,6 +259,7 @@ int gmux_set_param(struct wsdisplay_param *dp)
 			dp->curval = 0;
 		if (dp->curval > GMUX_MAPPED_MAX_BRIGHTNESS)
 			dp->curval = GMUX_MAPPED_MAX_BRIGHTNESS;
+		printf("inverse_map_value es = %d\n",inverse_map_value(dp->curval));
 		gmux_set_brightness(sc, inverse_map_value(dp->curval));
 		sc->sc_brightness = inverse_map_value(dp->curval);
 		return 0;
@@ -265,9 +270,9 @@ int gmux_set_param(struct wsdisplay_param *dp)
 
 
 int map_value(uint32_t brightness){
-	return (GMUX_MAPPED_MAX_BRIGHTNESS * (int)(brightness / GMUX_REAL_MAX_BRIGHTNESS));
+	return (int)((GMUX_MAPPED_MAX_BRIGHTNESS * ((float)brightness / (float)GMUX_REAL_MAX_BRIGHTNESS)));
 }
 
-int inverse_map_value(uint32_t brightness) {
-	return ((int)(brightness / GMUX_MAPPED_MAX_BRIGHTNESS) * GMUX_REAL_MAX_BRIGHTNESS);
+int inverse_map_value(int brightness) {
+	return (int)(((float)brightness / (float)GMUX_MAPPED_MAX_BRIGHTNESS) * GMUX_REAL_MAX_BRIGHTNESS);
 }

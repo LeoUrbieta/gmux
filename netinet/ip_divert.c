@@ -1,4 +1,4 @@
-/*      $OpenBSD: ip_divert.c,v 1.72 2022/08/21 17:30:21 mvs Exp $ */
+/*      $OpenBSD: ip_divert.c,v 1.87 2022/09/05 14:56:09 bluhm Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -63,10 +63,17 @@ const struct sysctl_bounded_args divertctl_vars[] = {
 };
 
 const struct pr_usrreqs divert_usrreqs = {
-	.pru_usrreq	= divert_usrreq,
 	.pru_attach	= divert_attach,
 	.pru_detach	= divert_detach,
+	.pru_lock	= divert_lock,
+	.pru_unlock	= divert_unlock,
 	.pru_bind	= divert_bind,
+	.pru_shutdown	= divert_shutdown,
+	.pru_send	= divert_send,
+	.pru_abort	= divert_abort,
+	.pru_control	= in_control,
+	.pru_sockaddr	= in_sockaddr,
+	.pru_peeraddr	= in_peeraddr,
 };
 
 int divbhashsize = DIVERTHASHSIZE;
@@ -247,76 +254,6 @@ divert_packet(struct mbuf *m, int dir, u_int16_t divert_port)
 	m_freem(m);
 }
 
-/*ARGSUSED*/
-int
-divert_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *addr,
-    struct mbuf *control, struct proc *p)
-{
-	struct inpcb *inp = sotoinpcb(so);
-	int error = 0;
-
-	if (req == PRU_CONTROL) {
-		return (in_control(so, (u_long)m, (caddr_t)addr,
-		    (struct ifnet *)control));
-	}
-
-	soassertlocked(so);
-
-	if (inp == NULL) {
-		error = EINVAL;
-		goto release;
-	}
-	switch (req) {
-
-	case PRU_SHUTDOWN:
-		socantsendmore(so);
-		break;
-
-	case PRU_SEND:
-		return (divert_output(inp, m, addr, control));
-
-	case PRU_ABORT:
-		soisdisconnected(so);
-		in_pcbdetach(inp);
-		break;
-
-	case PRU_SOCKADDR:
-		in_setsockaddr(inp, addr);
-		break;
-
-	case PRU_PEERADDR:
-		in_setpeeraddr(inp, addr);
-		break;
-
-	case PRU_SENSE:
-		break;
-
-	case PRU_CONNECT:
-	case PRU_CONNECT2:
-	case PRU_ACCEPT:
-	case PRU_DISCONNECT:
-	case PRU_SENDOOB:
-	case PRU_FASTTIMO:
-	case PRU_SLOWTIMO:
-	case PRU_PROTORCV:
-	case PRU_PROTOSEND:
-	case PRU_RCVD:
-	case PRU_RCVOOB:
-		error =  EOPNOTSUPP;
-		break;
-
-	default:
-		panic("divert_usrreq");
-	}
-
-release:
-	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
-		m_freem(control);
-		m_freem(m);
-	}
-	return (error);
-}
-
 int
 divert_attach(struct socket *so, int proto)
 {
@@ -353,6 +290,24 @@ divert_detach(struct socket *so)
 	return (0);
 }
 
+void
+divert_lock(struct socket *so)
+{
+	struct inpcb *inp = sotoinpcb(so);
+
+	NET_ASSERT_LOCKED();
+	mtx_enter(&inp->inp_mtx);
+}
+
+void
+divert_unlock(struct socket *so)
+{
+	struct inpcb *inp = sotoinpcb(so);
+
+	NET_ASSERT_LOCKED();
+	mtx_leave(&inp->inp_mtx);
+}
+
 int
 divert_bind(struct socket *so, struct mbuf *addr, struct proc *p)
 {
@@ -360,6 +315,37 @@ divert_bind(struct socket *so, struct mbuf *addr, struct proc *p)
 
 	soassertlocked(so);
 	return in_pcbbind(inp, addr, p);
+}
+
+int
+divert_shutdown(struct socket *so)
+{
+	soassertlocked(so);
+	socantsendmore(so);
+	return (0);
+}
+
+int
+divert_send(struct socket *so, struct mbuf *m, struct mbuf *addr,
+    struct mbuf *control)
+{
+	struct inpcb *inp = sotoinpcb(so);
+
+	soassertlocked(so);
+	return (divert_output(inp, m, addr, control));
+}
+
+int
+divert_abort(struct socket *so)
+{
+	struct inpcb *inp = sotoinpcb(so);
+
+	soassertlocked(so);
+
+	soisdisconnected(so);
+	in_pcbdetach(inp);
+
+	return (0);
 }
 
 int

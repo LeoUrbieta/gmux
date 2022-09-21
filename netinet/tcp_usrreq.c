@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_usrreq.c,v 1.190 2022/08/21 17:30:21 mvs Exp $	*/
+/*	$OpenBSD: tcp_usrreq.c,v 1.207 2022/09/03 22:43:38 mvs Exp $	*/
 /*	$NetBSD: tcp_usrreq.c,v 1.20 1996/02/13 23:44:16 christos Exp $	*/
 
 /*
@@ -112,12 +112,46 @@ u_int	tcp_recvspace = TCP_RECVSPACE;
 u_int	tcp_autorcvbuf_inc = 16 * 1024;
 
 const struct pr_usrreqs tcp_usrreqs = {
-	.pru_usrreq	= tcp_usrreq,
 	.pru_attach	= tcp_attach,
 	.pru_detach	= tcp_detach,
 	.pru_bind	= tcp_bind,
 	.pru_listen	= tcp_listen,
+	.pru_connect	= tcp_connect,
+	.pru_accept	= tcp_accept,
+	.pru_disconnect	= tcp_disconnect,
+	.pru_shutdown	= tcp_shutdown,
+	.pru_rcvd	= tcp_rcvd,
+	.pru_send	= tcp_send,
+	.pru_abort	= tcp_abort,
+	.pru_sense	= tcp_sense,
+	.pru_rcvoob	= tcp_rcvoob,
+	.pru_sendoob	= tcp_sendoob,
+	.pru_control	= in_control,
+	.pru_sockaddr	= tcp_sockaddr,
+	.pru_peeraddr	= tcp_peeraddr,
 };
+
+#ifdef INET6
+const struct pr_usrreqs tcp6_usrreqs = {
+	.pru_attach	= tcp_attach,
+	.pru_detach	= tcp_detach,
+	.pru_bind	= tcp_bind,
+	.pru_listen	= tcp_listen,
+	.pru_connect	= tcp_connect,
+	.pru_accept	= tcp_accept,
+	.pru_disconnect	= tcp_disconnect,
+	.pru_shutdown	= tcp_shutdown,
+	.pru_rcvd	= tcp_rcvd,
+	.pru_send	= tcp_send,
+	.pru_abort	= tcp_abort,
+	.pru_sense	= tcp_sense,
+	.pru_rcvoob	= tcp_rcvoob,
+	.pru_sendoob	= tcp_sendoob,
+	.pru_control	= in6_control,
+	.pru_sockaddr	= tcp_sockaddr,
+	.pru_peeraddr	= tcp_peeraddr,
+};
+#endif
 
 static int pr_slowhz = PR_SLOWHZ;
 const struct sysctl_bounded_args tcpctl_vars[] = {
@@ -171,265 +205,6 @@ tcp_sogetpcb(struct socket *so, struct inpcb **rinp, struct tcpcb **rtp)
 }
 
 /*
- * Process a TCP user request for TCP tb.  If this is a send request
- * then m is the mbuf chain of send data.  If this is a timer expiration
- * (called from the software clock routine), then timertype tells which timer.
- */
-/*ARGSUSED*/
-int
-tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
-    struct mbuf *control, struct proc *p)
-{
-	struct inpcb *inp;
-	struct tcpcb *otp = NULL, *tp;
-	int error = 0;
-	short ostate;
-
-	if (req == PRU_CONTROL) {
-#ifdef INET6
-		if (sotopf(so) == PF_INET6)
-			return in6_control(so, (u_long)m, (caddr_t)nam,
-			    (struct ifnet *)control);
-		else
-#endif /* INET6 */
-			return (in_control(so, (u_long)m, (caddr_t)nam,
-			    (struct ifnet *)control));
-	}
-
-	soassertlocked(so);
-
-	if (control && control->m_len) {
-		error = EINVAL;
-		goto release;
-	}
-
-	if ((error = tcp_sogetpcb(so, &inp, &tp)))
-		goto release;
-
-	if (so->so_options & SO_DEBUG) {
-		otp = tp;
-		ostate = tp->t_state;
-	}
-
-	switch (req) {
-
-	/*
-	 * Initiate connection to peer.
-	 * Create a template for use in transmissions on this connection.
-	 * Enter SYN_SENT state, and mark socket as connecting.
-	 * Start keep-alive timer, and seed output sequence space.
-	 * Send initial segment on connection.
-	 */
-	case PRU_CONNECT:
-#ifdef INET6
-		if (inp->inp_flags & INP_IPV6) {
-			struct sockaddr_in6 *sin6;
-
-			if ((error = in6_nam2sin6(nam, &sin6)))
-				break;
-			if (IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr) ||
-			    IN6_IS_ADDR_MULTICAST(&sin6->sin6_addr)) {
-				error = EINVAL;
-				break;
-			}
-			error = in6_pcbconnect(inp, nam);
-		} else
-#endif /* INET6 */
-		{
-			struct sockaddr_in *sin;
-
-			if ((error = in_nam2sin(nam, &sin)))
-				break;
-			if ((sin->sin_addr.s_addr == INADDR_ANY) ||
-			    (sin->sin_addr.s_addr == INADDR_BROADCAST) ||
-			    IN_MULTICAST(sin->sin_addr.s_addr) ||
-			    in_broadcast(sin->sin_addr, inp->inp_rtableid)) {
-				error = EINVAL;
-				break;
-			}
-			error = in_pcbconnect(inp, nam);
-		}
-		if (error)
-			break;
-
-		tp->t_template = tcp_template(tp);
-		if (tp->t_template == 0) {
-			in_pcbdisconnect(inp);
-			error = ENOBUFS;
-			break;
-		}
-
-		so->so_state |= SS_CONNECTOUT;
-
-		/* Compute window scaling to request.  */
-		tcp_rscale(tp, sb_max);
-
-		soisconnecting(so);
-		tcpstat_inc(tcps_connattempt);
-		tp->t_state = TCPS_SYN_SENT;
-		TCP_TIMER_ARM(tp, TCPT_KEEP, tcptv_keep_init);
-		tcp_set_iss_tsm(tp);
-		tcp_sendseqinit(tp);
-		tp->snd_last = tp->snd_una;
-		error = tcp_output(tp);
-		break;
-
-	/*
-	 * Create a TCP connection between two sockets.
-	 */
-	case PRU_CONNECT2:
-		error = EOPNOTSUPP;
-		break;
-
-	/*
-	 * Initiate disconnect from peer.
-	 * If connection never passed embryonic stage, just drop;
-	 * else if don't need to let data drain, then can just drop anyways,
-	 * else have to begin TCP shutdown process: mark socket disconnecting,
-	 * drain unread data, state switch to reflect user close, and
-	 * send segment (e.g. FIN) to peer.  Socket will be really disconnected
-	 * when peer sends FIN and acks ours.
-	 *
-	 * SHOULD IMPLEMENT LATER PRU_CONNECT VIA REALLOC TCPCB.
-	 */
-	case PRU_DISCONNECT:
-		tp = tcp_disconnect(tp);
-		break;
-
-	/*
-	 * Accept a connection.  Essentially all the work is
-	 * done at higher levels; just return the address
-	 * of the peer, storing through addr.
-	 */
-	case PRU_ACCEPT:
-#ifdef INET6
-		if (inp->inp_flags & INP_IPV6)
-			in6_setpeeraddr(inp, nam);
-		else
-#endif
-			in_setpeeraddr(inp, nam);
-		break;
-
-	/*
-	 * Mark the connection as being incapable of further output.
-	 */
-	case PRU_SHUTDOWN:
-		if (so->so_state & SS_CANTSENDMORE)
-			break;
-		socantsendmore(so);
-		tp = tcp_usrclosed(tp);
-		if (tp)
-			error = tcp_output(tp);
-		break;
-
-	/*
-	 * After a receive, possibly send window update to peer.
-	 */
-	case PRU_RCVD:
-		/*
-		 * soreceive() calls this function when a user receives
-		 * ancillary data on a listening socket. We don't call
-		 * tcp_output in such a case, since there is no header
-		 * template for a listening socket and hence the kernel
-		 * will panic.
-		 */
-		if ((so->so_state & (SS_ISCONNECTED|SS_ISCONNECTING)) != 0)
-			(void) tcp_output(tp);
-		break;
-
-	/*
-	 * Do a send by putting data in output queue and updating urgent
-	 * marker if URG set.  Possibly send more data.
-	 */
-	case PRU_SEND:
-		sbappendstream(so, &so->so_snd, m);
-		error = tcp_output(tp);
-		break;
-
-	/*
-	 * Abort the TCP.
-	 */
-	case PRU_ABORT:
-		tp = tcp_drop(tp, ECONNABORTED);
-		break;
-
-	case PRU_SENSE:
-		((struct stat *) m)->st_blksize = so->so_snd.sb_hiwat;
-		break;
-
-	case PRU_RCVOOB:
-		if ((so->so_oobmark == 0 &&
-		    (so->so_state & SS_RCVATMARK) == 0) ||
-		    so->so_options & SO_OOBINLINE ||
-		    tp->t_oobflags & TCPOOB_HADDATA) {
-			error = EINVAL;
-			break;
-		}
-		if ((tp->t_oobflags & TCPOOB_HAVEDATA) == 0) {
-			error = EWOULDBLOCK;
-			break;
-		}
-		m->m_len = 1;
-		*mtod(m, caddr_t) = tp->t_iobc;
-		if (((long)nam & MSG_PEEK) == 0)
-			tp->t_oobflags ^= (TCPOOB_HAVEDATA | TCPOOB_HADDATA);
-		break;
-
-	case PRU_SENDOOB:
-		if (sbspace(so, &so->so_snd) < -512) {
-			m_freem(m);
-			error = ENOBUFS;
-			break;
-		}
-		/*
-		 * According to RFC961 (Assigned Protocols),
-		 * the urgent pointer points to the last octet
-		 * of urgent data.  We continue, however,
-		 * to consider it to indicate the first octet
-		 * of data past the urgent section.
-		 * Otherwise, snd_up should be one lower.
-		 */
-		sbappendstream(so, &so->so_snd, m);
-		tp->snd_up = tp->snd_una + so->so_snd.sb_cc;
-		tp->t_force = 1;
-		error = tcp_output(tp);
-		tp->t_force = 0;
-		break;
-
-	case PRU_SOCKADDR:
-#ifdef INET6
-		if (inp->inp_flags & INP_IPV6)
-			in6_setsockaddr(inp, nam);
-		else
-#endif
-			in_setsockaddr(inp, nam);
-		break;
-
-	case PRU_PEERADDR:
-#ifdef INET6
-		if (inp->inp_flags & INP_IPV6)
-			in6_setpeeraddr(inp, nam);
-		else
-#endif
-			in_setpeeraddr(inp, nam);
-		break;
-
-	default:
-		panic("tcp_usrreq");
-	}
-	if (otp)
-		tcp_trace(TA_USER, ostate, tp, otp, NULL, req, 0);
-	return (error);
-
- release:
-	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
-		m_freem(control);
-		m_freem(m);
-	}
-	return (error);
-}
-
-/*
  * Export internal TCP state information via a struct tcp_info without
  * leaking any sensitive information. Sequence numbers are reported
  * relative to the initial sequence number.
@@ -440,6 +215,7 @@ tcp_fill_info(struct tcpcb *tp, struct socket *so, struct mbuf *m)
 	struct proc *p = curproc;
 	struct tcp_info *ti;
 	u_int t = 1000000 / PR_SLOWHZ;
+	uint32_t now;
 
 	if (sizeof(*ti) > MLEN) {
 		MCLGETL(m, M_WAITOK, sizeof(*ti));
@@ -449,6 +225,7 @@ tcp_fill_info(struct tcpcb *tp, struct socket *so, struct mbuf *m)
 	ti = mtod(m, struct tcp_info *);
 	m->m_len = sizeof(*ti);
 	memset(ti, 0, sizeof(*ti));
+	now = READ_ONCE(tcp_now);
 
 	ti->tcpi_state = tp->t_state;
 	if ((tp->t_flags & TF_REQ_TSTMP) && (tp->t_flags & TF_RCVD_TSTMP))
@@ -469,10 +246,10 @@ tcp_fill_info(struct tcpcb *tp, struct socket *so, struct mbuf *m)
 	ti->tcpi_snd_mss = tp->t_maxseg;
 	ti->tcpi_rcv_mss = tp->t_peermss;
 
-	ti->tcpi_last_data_sent = (tcp_now - tp->t_sndtime) * t;
-	ti->tcpi_last_ack_sent = (tcp_now - tp->t_sndacktime) * t;
-	ti->tcpi_last_data_recv = (tcp_now - tp->t_rcvtime) * t;
-	ti->tcpi_last_ack_recv = (tcp_now - tp->t_rcvacktime) * t;
+	ti->tcpi_last_data_sent = (now - tp->t_sndtime) * t;
+	ti->tcpi_last_ack_sent = (now - tp->t_sndacktime) * t;
+	ti->tcpi_last_data_recv = (now - tp->t_rcvtime) * t;
+	ti->tcpi_last_ack_recv = (now - tp->t_rcvacktime) * t;
 
 	ti->tcpi_rtt = ((uint64_t)tp->t_srtt * t) >>
 	    (TCP_RTT_SHIFT + TCP_RTT_BASE_SHIFT);
@@ -510,9 +287,9 @@ tcp_fill_info(struct tcpcb *tp, struct socket *so, struct mbuf *m)
 	ti->tcpi_snd_max = tp->snd_max - tp->iss;
 
 	ti->tcpi_ts_recent = tp->ts_recent; /* XXX value from the wire */
-	ti->tcpi_ts_recent_age = (tcp_now - tp->ts_recent_age) * t;
+	ti->tcpi_ts_recent_age = (now - tp->ts_recent_age) * t;
 	ti->tcpi_rfbuf_cnt = tp->rfbuf_cnt;
-	ti->tcpi_rfbuf_ts = (tcp_now - tp->rfbuf_ts) * t;
+	ti->tcpi_rfbuf_ts = (now - tp->rfbuf_ts) * t;
 
 	ti->tcpi_so_rcv_sb_cc = so->so_rcv.sb_cc;
 	ti->tcpi_so_rcv_sb_hiwat = so->so_rcv.sb_hiwat;
@@ -756,7 +533,7 @@ tcp_detach(struct socket *so)
 	 * which may finish later; embryonic TCB's can just
 	 * be discarded here.
 	 */
-	tp = tcp_disconnect(tp);
+	tp = tcp_dodisconnect(tp);
 
 	if (otp)
 		tcp_trace(TA_USER, ostate, tp, otp, NULL, PRU_DETACH, 0);
@@ -827,6 +604,450 @@ out:
 }
 
 /*
+ * Initiate connection to peer.
+ * Create a template for use in transmissions on this connection.
+ * Enter SYN_SENT state, and mark socket as connecting.
+ * Start keep-alive timer, and seed output sequence space.
+ * Send initial segment on connection.
+ */
+int
+tcp_connect(struct socket *so, struct mbuf *nam)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp, *otp = NULL;
+	int error;
+	short ostate;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+	if (so->so_options & SO_DEBUG) {
+		otp = tp;
+		ostate = tp->t_state;
+	}
+
+#ifdef INET6
+	if (inp->inp_flags & INP_IPV6) {
+		struct sockaddr_in6 *sin6;
+
+		if ((error = in6_nam2sin6(nam, &sin6)))
+			goto out;
+		if (IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr) ||
+		    IN6_IS_ADDR_MULTICAST(&sin6->sin6_addr)) {
+			error = EINVAL;
+			goto out;
+		}
+		error = in6_pcbconnect(inp, nam);
+	} else
+#endif /* INET6 */
+	{
+		struct sockaddr_in *sin;
+
+		if ((error = in_nam2sin(nam, &sin)))
+			goto out;
+		if ((sin->sin_addr.s_addr == INADDR_ANY) ||
+		    (sin->sin_addr.s_addr == INADDR_BROADCAST) ||
+		    IN_MULTICAST(sin->sin_addr.s_addr) ||
+		    in_broadcast(sin->sin_addr, inp->inp_rtableid)) {
+			error = EINVAL;
+			goto out;
+		}
+		error = in_pcbconnect(inp, nam);
+	}
+	if (error)
+		goto out;
+
+	tp->t_template = tcp_template(tp);
+	if (tp->t_template == 0) {
+		in_pcbdisconnect(inp);
+		error = ENOBUFS;
+		goto out;
+	}
+
+	so->so_state |= SS_CONNECTOUT;
+
+	/* Compute window scaling to request.  */
+	tcp_rscale(tp, sb_max);
+
+	soisconnecting(so);
+	tcpstat_inc(tcps_connattempt);
+	tp->t_state = TCPS_SYN_SENT;
+	TCP_TIMER_ARM(tp, TCPT_KEEP, tcptv_keep_init);
+	tcp_set_iss_tsm(tp);
+	tcp_sendseqinit(tp);
+	tp->snd_last = tp->snd_una;
+	error = tcp_output(tp);
+
+out:
+	if (otp)
+		tcp_trace(TA_USER, ostate, tp, otp, NULL, PRU_CONNECT, 0);
+	return (error);
+}
+
+/*
+ * Accept a connection.  Essentially all the work is done at higher
+ * levels; just return the address of the peer, storing through addr.
+ */
+int
+tcp_accept(struct socket *so, struct mbuf *nam)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp;
+	int error;
+	short ostate;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+	if (so->so_options & SO_DEBUG)
+		ostate = tp->t_state;
+
+#ifdef INET6
+	if (inp->inp_flags & INP_IPV6)
+		in6_setpeeraddr(inp, nam);
+	else
+#endif
+		in_setpeeraddr(inp, nam);
+
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, ostate, tp, tp, NULL, PRU_ACCEPT, 0);
+	return (error);
+}
+
+/*
+ * Initiate disconnect from peer.
+ * If connection never passed embryonic stage, just drop;
+ * else if don't need to let data drain, then can just drop anyways,
+ * else have to begin TCP shutdown process: mark socket disconnecting,
+ * drain unread data, state switch to reflect user close, and
+ * send segment (e.g. FIN) to peer.  Socket will be really disconnected
+ * when peer sends FIN and acks ours.
+ *
+ * SHOULD IMPLEMENT LATER PRU_CONNECT VIA REALLOC TCPCB.
+ */
+int
+tcp_disconnect(struct socket *so)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp, *otp = NULL;
+	int error;
+	short ostate;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+	if (so->so_options & SO_DEBUG) {
+		otp = tp;
+		ostate = tp->t_state;
+	}
+
+	tp = tcp_dodisconnect(tp);
+
+	if (otp)
+		tcp_trace(TA_USER, ostate, tp, otp, NULL, PRU_DISCONNECT, 0);
+	return (0);
+}
+
+/*
+ * Mark the connection as being incapable of further output.
+ */
+int
+tcp_shutdown(struct socket *so)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp, *otp = NULL;
+	int error;
+	short ostate;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+	if (so->so_options & SO_DEBUG) {
+		otp = tp;
+		ostate = tp->t_state;
+	}
+
+	if (so->so_state & SS_CANTSENDMORE)
+		goto out;
+
+	socantsendmore(so);
+	tp = tcp_usrclosed(tp);
+	if (tp)
+		error = tcp_output(tp);
+
+out:
+	if (otp)
+		tcp_trace(TA_USER, ostate, tp, otp, NULL, PRU_SHUTDOWN, 0);
+	return (error);
+}
+
+/*
+ * After a receive, possibly send window update to peer.
+ */
+int
+tcp_rcvd(struct socket *so)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp;
+	int error;
+	short ostate;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+	if (so->so_options & SO_DEBUG)
+		ostate = tp->t_state;
+
+	/*
+	 * soreceive() calls this function when a user receives
+	 * ancillary data on a listening socket. We don't call
+	 * tcp_output in such a case, since there is no header
+	 * template for a listening socket and hence the kernel
+	 * will panic.
+	 */
+	if ((so->so_state & (SS_ISCONNECTED|SS_ISCONNECTING)) != 0)
+		(void) tcp_output(tp);
+
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, ostate, tp, tp, NULL, PRU_RCVD, 0);
+	return (0);
+}
+
+/*
+ * Do a send by putting data in output queue and updating urgent
+ * marker if URG set.  Possibly send more data.
+ */
+int
+tcp_send(struct socket *so, struct mbuf *m, struct mbuf *nam,
+    struct mbuf *control)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp;
+	int error;
+	short ostate;
+
+	soassertlocked(so);
+
+	if (control && control->m_len) {
+		error = EINVAL;
+		goto out;
+	}
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		goto out;
+
+	if (so->so_options & SO_DEBUG)
+		ostate = tp->t_state;
+
+	sbappendstream(so, &so->so_snd, m);
+	m = NULL;
+
+	error = tcp_output(tp);
+
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, ostate, tp, tp, NULL, PRU_SEND, 0);
+
+out:
+	m_freem(control);
+	m_freem(m);
+
+	return (error);
+}
+
+/*
+ * Abort the TCP.
+ */
+int
+tcp_abort(struct socket *so)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp, *otp = NULL;
+	int error;
+	short ostate;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+	if (so->so_options & SO_DEBUG) {
+		otp = tp;
+		ostate = tp->t_state;
+	}
+
+	tp = tcp_drop(tp, ECONNABORTED);
+
+	if (otp)
+		tcp_trace(TA_USER, ostate, tp, otp, NULL, PRU_ABORT, 0);
+	return (0);
+}
+
+int
+tcp_sense(struct socket *so, struct stat *ub)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp;
+	int error;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+	ub->st_blksize = so->so_snd.sb_hiwat;
+
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, tp->t_state, tp, tp, NULL, PRU_SENSE, 0);
+	return (0);
+}
+
+int
+tcp_rcvoob(struct socket *so, struct mbuf *m, int flags)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp;
+	int error;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+	if ((so->so_oobmark == 0 &&
+	    (so->so_state & SS_RCVATMARK) == 0) ||
+	    so->so_options & SO_OOBINLINE ||
+	    tp->t_oobflags & TCPOOB_HADDATA) {
+		error = EINVAL;
+		goto out;
+	}
+	if ((tp->t_oobflags & TCPOOB_HAVEDATA) == 0) {
+		error = EWOULDBLOCK;
+		goto out;
+	}
+	m->m_len = 1;
+	*mtod(m, caddr_t) = tp->t_iobc;
+	if ((flags & MSG_PEEK) == 0)
+		tp->t_oobflags ^= (TCPOOB_HAVEDATA | TCPOOB_HADDATA);
+out:
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, tp->t_state, tp, tp, NULL, PRU_RCVOOB, 0);
+	return (error);
+}
+
+int
+tcp_sendoob(struct socket *so, struct mbuf *m, struct mbuf *nam,
+    struct mbuf *control)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp;
+	int error;
+	short ostate;
+
+	soassertlocked(so);
+
+	if (control && control->m_len) {
+		error = EINVAL;
+		goto release;
+	}
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		goto release;
+
+	if (so->so_options & SO_DEBUG)
+		ostate = tp->t_state;
+
+	if (sbspace(so, &so->so_snd) < -512) {
+		error = ENOBUFS;
+		goto out;
+	}
+
+	/*
+	 * According to RFC961 (Assigned Protocols),
+	 * the urgent pointer points to the last octet
+	 * of urgent data.  We continue, however,
+	 * to consider it to indicate the first octet
+	 * of data past the urgent section.
+	 * Otherwise, snd_up should be one lower.
+	 */
+	sbappendstream(so, &so->so_snd, m);
+	m = NULL;
+	tp->snd_up = tp->snd_una + so->so_snd.sb_cc;
+	tp->t_force = 1;
+	error = tcp_output(tp);
+	tp->t_force = 0;
+
+out:
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, ostate, tp, tp, NULL, PRU_SENDOOB, 0);
+
+release:
+	m_freem(control);
+	m_freem(m);
+
+	return (error);
+}
+
+int
+tcp_sockaddr(struct socket *so, struct mbuf *nam)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp;
+	int error;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+#ifdef INET6
+	if (inp->inp_flags & INP_IPV6)
+		in6_setsockaddr(inp, nam);
+	else
+#endif
+		in_setsockaddr(inp, nam);
+
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, tp->t_state, tp, tp, NULL,
+		    PRU_SOCKADDR, 0);
+	return (0);
+}
+
+int
+tcp_peeraddr(struct socket *so, struct mbuf *nam)
+{
+	struct inpcb *inp;
+	struct tcpcb *tp;
+	int error;
+
+	soassertlocked(so);
+
+	if ((error = tcp_sogetpcb(so, &inp, &tp)))
+		return (error);
+
+#ifdef INET6
+	if (inp->inp_flags & INP_IPV6)
+		in6_setpeeraddr(inp, nam);
+	else
+#endif
+		in_setpeeraddr(inp, nam);
+
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, tp->t_state, tp, tp, NULL,
+		    PRU_PEERADDR, 0);
+	return (0);
+}
+
+/*
  * Initiate (or continue) disconnect.
  * If embryonic state, just send reset (once).
  * If in ``let data drain'' option and linger null, just drop.
@@ -835,7 +1056,7 @@ out:
  * send segment to peer (with FIN).
  */
 struct tcpcb *
-tcp_disconnect(struct tcpcb *tp)
+tcp_dodisconnect(struct tcpcb *tp)
 {
 	struct socket *so = tp->t_inpcb->inp_socket;
 
@@ -961,12 +1182,12 @@ tcp_ident(void *oldp, size_t *oldlenp, void *newp, size_t newlen, int dodrop)
 	switch (tir.faddr.ss_family) {
 #ifdef INET6
 	case AF_INET6:
-		inp = in6_pcbhashlookup(&tcbtable, &f6,
+		inp = in6_pcblookup(&tcbtable, &f6,
 		    fin6->sin6_port, &l6, lin6->sin6_port, tir.rdomain);
 		break;
 #endif
 	case AF_INET:
-		inp = in_pcbhashlookup(&tcbtable, fin->sin_addr,
+		inp = in_pcblookup(&tcbtable, fin->sin_addr,
 		    fin->sin_port, lin->sin_addr, lin->sin_port, tir.rdomain);
 		break;
 	default:

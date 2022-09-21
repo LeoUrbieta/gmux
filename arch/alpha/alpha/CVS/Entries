@@ -1,8 +1,6 @@
 /api_up1000.c/1.12/Thu May  8 20:46:49 2014//
-/autoconf.c/1.38/Sat Jan 27 22:55:23 2018//
 /clock.c/1.25/Tue Feb 23 04:44:30 2021//
 /clockvar.h/1.5/Thu Mar 14 01:26:26 2002//
-/conf.c/1.90/Thu Nov 11 10:03:08 2021//
 /cpu.c/1.45/Sun Mar 13 08:04:13 2022//
 /cpuconf.c/1.14/Sat Mar  9 02:10:47 2013//
 /db_disasm.c/1.25/Thu Nov  7 14:44:52 2019//
@@ -45,5 +43,7 @@
 /sys_machdep.c/1.7/Thu Jun 26 05:42:08 2008//
 /vm_machdep.c/1.48/Mon Feb 21 19:22:21 2022//
 /machdep.c/1.198/Sun Aug 21 22:31:46 2022//
-/trap.c/1.102/Sun Aug 21 22:31:46 2022//
+/autoconf.c/1.39/Fri Sep  9 15:06:12 2022//
+/conf.c/1.91/Fri Sep  9 15:06:12 2022//
+/trap.c/1.103/Fri Sep  9 15:06:12 2022//
 D

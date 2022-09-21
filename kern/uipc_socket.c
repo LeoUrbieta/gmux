@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket.c,v 1.284 2022/08/21 16:22:17 mvs Exp $	*/
+/*	$OpenBSD: uipc_socket.c,v 1.289 2022/09/05 14:56:08 bluhm Exp $	*/
 /*	$NetBSD: uipc_socket.c,v 1.21 1996/02/04 02:17:52 christos Exp $	*/
 
 /*
@@ -822,10 +822,10 @@ bad:
 	if (mp)
 		*mp = NULL;
 
-	solock(so);
+	solock_shared(so);
 restart:
 	if ((error = sblock(so, &so->so_rcv, SBLOCKWAIT(flags))) != 0) {
-		sounlock(so);
+		sounlock_shared(so);
 		return (error);
 	}
 
@@ -893,7 +893,7 @@ restart:
 		sbunlock(so, &so->so_rcv);
 		error = sbwait(so, &so->so_rcv);
 		if (error) {
-			sounlock(so);
+			sounlock_shared(so);
 			return (error);
 		}
 		goto restart;
@@ -962,11 +962,11 @@ dontblock:
 			sbsync(&so->so_rcv, nextrecord);
 			if (controlp) {
 				if (pr->pr_domain->dom_externalize) {
-					sounlock(so);
+					sounlock_shared(so);
 					error =
 					    (*pr->pr_domain->dom_externalize)
 					    (cm, controllen, flags);
-					solock(so);
+					solock_shared(so);
 				}
 				*controlp = cm;
 			} else {
@@ -1040,9 +1040,9 @@ dontblock:
 			SBLASTRECORDCHK(&so->so_rcv, "soreceive uiomove");
 			SBLASTMBUFCHK(&so->so_rcv, "soreceive uiomove");
 			resid = uio->uio_resid;
-			sounlock(so);
+			sounlock_shared(so);
 			uio_error = uiomove(mtod(m, caddr_t) + moff, len, uio);
-			solock(so);
+			solock_shared(so);
 			if (uio_error)
 				uio->uio_resid = resid - len;
 		} else
@@ -1126,7 +1126,7 @@ dontblock:
 			error = sbwait(so, &so->so_rcv);
 			if (error) {
 				sbunlock(so, &so->so_rcv);
-				sounlock(so);
+				sounlock_shared(so);
 				return (0);
 			}
 			if ((m = so->so_rcv.sb_mb) != NULL)
@@ -1155,8 +1155,8 @@ dontblock:
 		}
 		SBLASTRECORDCHK(&so->so_rcv, "soreceive 4");
 		SBLASTMBUFCHK(&so->so_rcv, "soreceive 4");
-		if (pr->pr_flags & PR_WANTRCVD && so->so_pcb)
-			pru_rcvd(so, flags);
+		if (pr->pr_flags & PR_WANTRCVD)
+			pru_rcvd(so);
 	}
 	if (orig_resid == uio->uio_resid && orig_resid &&
 	    (flags & MSG_EOR) == 0 && (so->so_state & SS_CANTRCVMORE) == 0) {
@@ -1171,7 +1171,7 @@ dontblock:
 		*flagsp |= flags;
 release:
 	sbunlock(so, &so->so_rcv);
-	sounlock(so);
+	sounlock_shared(so);
 	return (error);
 }
 
@@ -1293,7 +1293,8 @@ sosplice(struct socket *so, int fd, off_t max, struct timeval *tv)
 	if ((error = getsock(curproc, fd, &fp)) != 0)
 		return (error);
 	sosp = fp->f_data;
-	if (sosp->so_proto->pr_usrreqs != so->so_proto->pr_usrreqs) {
+	if (sosp->so_proto->pr_usrreqs->pru_send !=
+	    so->so_proto->pr_usrreqs->pru_send) {
 		error = EPROTONOSUPPORT;
 		goto frele;
 	}
@@ -1520,8 +1521,8 @@ somove(struct socket *so, int wait)
 		m = m->m_next;
 	if (m == NULL) {
 		sbdroprecord(so, &so->so_rcv);
-		if (so->so_proto->pr_flags & PR_WANTRCVD && so->so_pcb)
-			pru_rcvd(so, 0);
+		if (so->so_proto->pr_flags & PR_WANTRCVD)
+			pru_rcvd(so);
 		goto nextpkt;
 	}
 
@@ -1626,8 +1627,8 @@ somove(struct socket *so, int wait)
 	}
 
 	/* Send window update to source peer as receive buffer has changed. */
-	if (so->so_proto->pr_flags & PR_WANTRCVD && so->so_pcb)
-		pru_rcvd(so, 0);
+	if (so->so_proto->pr_flags & PR_WANTRCVD)
+		pru_rcvd(so);
 
 	/* Receive buffer did shrink by len bytes, adjust oob. */
 	state = so->so_state;

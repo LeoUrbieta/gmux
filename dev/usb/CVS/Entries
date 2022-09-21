@@ -92,7 +92,6 @@
 /ukbdvar.h/1.5/Sat Jul 31 16:04:50 2010//
 /ukspan.c/1.4/Sat Apr  9 20:07:44 2022//
 /ulpt.c/1.58/Fri Jan 29 17:12:19 2021//
-/umass.c/1.80/Fri Jan 29 17:12:19 2021//
 /umass_quirks.c/1.34/Wed Aug 26 13:57:20 2020//
 /umass_quirks.h/1.4/Thu Jun 26 05:42:19 2008//
 /umass_scsi.c/1.63/Sat Apr 16 19:19:59 2022//
@@ -105,7 +104,6 @@
 /umidireg.h/1.8/Mon Apr 15 09:23:02 2013//
 /umidivar.h/1.17/Sun Jan  9 05:43:01 2022//
 /ums.c/1.51/Mon Nov 22 11:29:17 2021//
-/umsm.c/1.121/Sat Apr  9 20:07:44 2022//
 /umstc.c/1.7/Mon Nov 22 11:29:18 2021//
 /umt.c/1.5/Mon Nov 15 15:36:24 2021//
 /uoak.h/1.5/Sat Apr  9 20:09:03 2022//
@@ -129,7 +127,6 @@
 /usbdi.h/1.72/Wed Feb 16 06:23:42 2022//
 /usbdi_util.c/1.46/Wed Feb 24 03:54:05 2021//
 /usbdi_util.h/1.31/Wed Feb 24 03:54:05 2021//
-/usbdivar.h/1.82/Tue Apr 12 19:41:11 2022//
 /usbhid.h/1.21/Sat Jan  9 04:10:36 2016//
 /usbpcap.h/1.2/Mon Feb 26 13:06:49 2018//
 /uscom.c/1.8/Sat Apr  9 20:07:44 2022//
@@ -153,7 +150,6 @@
 D/dwc2////
 /if_run.c/1.137/Wed May 11 04:38:11 2022//
 /fido.c/1.5/Sun Jul  3 00:30:49 2022//
-/if_uaq.c/1.4/Sun Jul  3 00:30:49 2022//
 /ubsa.c/1.69/Sun Jul  3 00:30:49 2022//
 /ucom.c/1.74/Sun Jul  3 00:30:49 2022//
 /udcf.c/1.65/Sun Jul  3 00:30:49 2022//
@@ -167,14 +163,10 @@ D/dwc2////
 /umodem.c/1.69/Sun Jul  3 00:30:49 2022//
 /uplcom.c/1.80/Sun Jul  3 00:30:49 2022//
 /usb.c/1.130/Sun Jul  3 00:30:49 2022//
-/usbdevs/1.747/Sun Jul  3 00:30:49 2022//
-/usbdevs.h/1.759/Sun Jul  3 00:30:50 2022//
-/usbdevs_data.h/1.753/Sun Jul  3 00:30:50 2022//
 /uvscom.c/1.42/Sun Jul  3 00:30:50 2022//
 /if_athn_usb.c/1.65/Sun Jul 31 23:28:53 2022//
 /if_mtw.c/1.7/Sun Jul 31 23:28:53 2022//
 /udl.c/1.98/Sun Jul 31 23:28:53 2022//
-/uhub.c/1.96/Sun Jul 31 23:28:53 2022//
 /xhci.c/1.126/Sun Jul 31 23:28:53 2022//
 /xhcivar.h/1.13/Sun Jul 31 23:28:53 2022//
 /uhidev.c/1.108/Mon Aug  1 08:07:44 2022//
@@ -184,3 +176,11 @@ D/dwc2////
 /ucc.c/1.35/Result of merge//
 /uhidpp.c/1.27/Sun Aug 21 22:32:04 2022//
 /uvideo.c/1.218/Sun Aug 21 22:32:04 2022//
+/if_uaq.c/1.5/Fri Sep  9 15:06:33 2022//
+/uhub.c/1.97/Fri Sep  9 15:06:33 2022//
+/umass.c/1.81/Fri Sep  9 15:06:33 2022//
+/umsm.c/1.122/Fri Sep  9 15:06:33 2022//
+/usbdevs/1.748/Fri Sep  9 15:06:33 2022//
+/usbdevs.h/1.760/Fri Sep  9 15:06:33 2022//
+/usbdevs_data.h/1.754/Fri Sep  9 15:06:33 2022//
+/usbdivar.h/1.83/Fri Sep  9 15:06:33 2022//

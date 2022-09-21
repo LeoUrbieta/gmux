@@ -1,5 +1,7 @@
 /*
  * Driver to control backlight in MacBook Retina Display.
+ * Address numbers and inner workings heavily derived from
+ * apple-gmux Linux driver.
  *
  * */
 
@@ -43,11 +45,11 @@ struct gmux_softc {
 
 int	gmux_match(struct device *, void *, void *);
 void	gmux_attach(struct device *, struct device *, void *);
-void    gmux_complete(struct gmux_softc *);
-void    gmux_ready(struct gmux_softc *);
-int	gmux_confirm_retina_display(struct gmux_softc *);
+void	gmux_complete(struct gmux_softc *);
+void	gmux_ready(struct gmux_softc *);
+bool	gmux_confirm_retina_display(struct gmux_softc *);
 int	gmux_get_brightness(struct gmux_softc *);
-int     gmux_set_brightness(struct gmux_softc *,uint16_t);
+int	gmux_set_brightness(struct gmux_softc *,uint16_t);
 
 /* Hooks for wsconsole brightness control. */
 int	gmux_get_param(struct wsdisplay_param *);
@@ -110,7 +112,7 @@ gmux_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	if(!gmux_confirm_retina_display(sc))
+	if (!gmux_confirm_retina_display(sc))
 		return;
 
 	/* Set initial brightness to maximum */
@@ -123,7 +125,9 @@ gmux_attach(struct device *parent, struct device *self, void *aux)
 	printf("\n");
 }
 
-int gmux_confirm_retina_display(struct gmux_softc *sc){
+bool 
+gmux_confirm_retina_display(struct gmux_softc *sc)
+{
 	uint16_t retina_value;
 
 	/* Values that confirm that gmux chip is for retina display*/
@@ -133,18 +137,20 @@ int gmux_confirm_retina_display(struct gmux_softc *sc){
 
 	retina_value = bus_space_read_2(sc->sc_iot,sc->sc_ioh,0xcc) | 
 		(bus_space_read_1(sc->sc_iot,sc->sc_ioh,0xcd) << 8); 
-	if(retina_value == 0x55aa)
-		return 1;
+	if (retina_value == 0x55aa)
+		return true;
 	else
-		return 0;
+		return false;
 }
-void gmux_complete(struct gmux_softc *sc){
 
+void 
+gmux_complete(struct gmux_softc *sc)
+{
 	int counter = 50;
 	uint8_t complete;
 
 	complete = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
-	while(counter && !(complete & 0x01)){
+	while (counter && !(complete & 0x01)){
 		complete = bus_space_read_1(sc->sc_iot,sc->sc_ioh,
 				GMUX_PORT_WRITE);
 		delay(10);
@@ -156,11 +162,13 @@ void gmux_complete(struct gmux_softc *sc){
 
 }
 
-void gmux_ready(struct gmux_softc *sc){
+void 
+gmux_ready(struct gmux_softc *sc)
+{
 	int counter = 50;
 	uint8_t ready;
 	ready = bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_WRITE);
-	while(counter && (ready & 0x01)){
+	while (counter && (ready & 0x01)){
 		bus_space_read_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_READ);
 		ready = bus_space_read_1(sc->sc_iot,sc->sc_ioh,
 				GMUX_PORT_WRITE);
@@ -169,8 +177,9 @@ void gmux_ready(struct gmux_softc *sc){
 	}
 }
 
-int gmux_get_brightness(struct gmux_softc *sc){
-	
+int 
+gmux_get_brightness(struct gmux_softc *sc)
+{
 	gmux_ready(sc);
 	bus_space_write_1(sc->sc_iot,sc->sc_ioh,GMUX_PORT_READ,
 			GMUX_PORT_BRIGHTNESS);
@@ -178,8 +187,9 @@ int gmux_get_brightness(struct gmux_softc *sc){
 	return bus_space_read_4(sc->sc_iot,sc->sc_ioh,GMUX_PORT_VALUE);	
 }
 
-int gmux_set_brightness(struct gmux_softc *sc, uint16_t brightness){
-	
+int 
+gmux_set_brightness(struct gmux_softc *sc, uint16_t brightness)
+{
 	bus_space_write_4(sc->sc_iot,sc->sc_ioh,GMUX_PORT_VALUE,brightness);
 	
 	gmux_ready(sc);
@@ -189,7 +199,8 @@ int gmux_set_brightness(struct gmux_softc *sc, uint16_t brightness){
 	return brightness;
 }
 
-int gmux_get_param(struct wsdisplay_param *dp)
+int 
+gmux_get_param(struct wsdisplay_param *dp)
 {
 	struct gmux_softc *sc = gmux_cd.cd_devs[0];
 

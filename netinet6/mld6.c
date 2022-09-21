@@ -1,4 +1,4 @@
-/*	$OpenBSD: mld6.c,v 1.56 2018/11/30 09:28:34 claudio Exp $	*/
+/*	$OpenBSD: mld6.c,v 1.61 2022/09/08 10:22:07 kn Exp $	*/
 /*	$KAME: mld6.c,v 1.26 2001/02/16 14:50:35 itojun Exp $	*/
 
 /*
@@ -84,10 +84,7 @@
 #include <netinet6/mld6_var.h>
 
 static struct ip6_pktopts ip6_opts;
-static int mld_timers_are_running;
-/* XXX: These are necessary for KAME's link-local hack */
-static struct in6_addr mld_all_nodes_linklocal = IN6ADDR_LINKLOCAL_ALLNODES_INIT;
-static struct in6_addr mld_all_routers_linklocal = IN6ADDR_LINKLOCAL_ALLROUTERS_INIT;
+int	mld6_timers_are_running;	/* [N] shortcut for fast timer */
 
 void mld6_checktimer(struct ifnet *);
 static void mld6_sendpkt(struct in6_multi *, int, const struct in6_addr *);
@@ -99,7 +96,7 @@ mld6_init(void)
 	struct ip6_hbh *hbh = (struct ip6_hbh *)hbh_buf;
 	u_int16_t rtalert_code = htons((u_int16_t)IP6OPT_RTALERT_MLD);
 
-	mld_timers_are_running = 0;
+	mld6_timers_are_running = 0;
 
 	/* ip6h_nxt will be fill in later */
 	hbh->ip6h_len = 0;	/* (8 >> 3) - 1 */
@@ -118,6 +115,9 @@ mld6_init(void)
 void
 mld6_start_listening(struct in6_multi *in6m)
 {
+	/* XXX: These are necessary for KAME's link-local hack */
+	struct in6_addr all_nodes = IN6ADDR_LINKLOCAL_ALLNODES_INIT;
+
 	/*
 	 * RFC2710 page 10:
 	 * The node never sends a Report or Done for the link-scope all-nodes
@@ -125,9 +125,10 @@ mld6_start_listening(struct in6_multi *in6m)
 	 * MLD messages are never sent for multicast addresses whose scope is 0
 	 * (reserved) or 1 (node-local).
 	 */
-	mld_all_nodes_linklocal.s6_addr16[1] = htons(in6m->in6m_ifidx);/* XXX */
-	if (IN6_ARE_ADDR_EQUAL(&in6m->in6m_addr, &mld_all_nodes_linklocal) ||
-	    __IPV6_ADDR_MC_SCOPE(&in6m->in6m_addr) < __IPV6_ADDR_SCOPE_LINKLOCAL) {
+	all_nodes.s6_addr16[1] = htons(in6m->in6m_ifidx);
+	if (IN6_ARE_ADDR_EQUAL(&in6m->in6m_addr, &all_nodes) ||
+	    __IPV6_ADDR_MC_SCOPE(&in6m->in6m_addr) <
+	    __IPV6_ADDR_SCOPE_LINKLOCAL) {
 		in6m->in6m_timer = 0;
 		in6m->in6m_state = MLD_OTHERLISTENER;
 	} else {
@@ -136,22 +137,26 @@ mld6_start_listening(struct in6_multi *in6m)
 		    MLD_RANDOM_DELAY(MLD_V1_MAX_RI *
 		    PR_FASTHZ);
 		in6m->in6m_state = MLD_IREPORTEDLAST;
-		mld_timers_are_running = 1;
+		mld6_timers_are_running = 1;
 	}
 }
 
 void
 mld6_stop_listening(struct in6_multi *in6m)
 {
-	mld_all_nodes_linklocal.s6_addr16[1] = htons(in6m->in6m_ifidx);/* XXX */
-	mld_all_routers_linklocal.s6_addr16[1] =
-	    htons(in6m->in6m_ifidx); /* XXX: necessary when mrouting */
+	/* XXX: These are necessary for KAME's link-local hack */
+	struct in6_addr all_nodes = IN6ADDR_LINKLOCAL_ALLNODES_INIT;
+	struct in6_addr all_routers = IN6ADDR_LINKLOCAL_ALLROUTERS_INIT;
+
+	all_nodes.s6_addr16[1] = htons(in6m->in6m_ifidx);
+	/* XXX: necessary when mrouting */
+	all_routers.s6_addr16[1] = htons(in6m->in6m_ifidx);
 
 	if (in6m->in6m_state == MLD_IREPORTEDLAST &&
-	    (!IN6_ARE_ADDR_EQUAL(&in6m->in6m_addr, &mld_all_nodes_linklocal)) &&
-	    __IPV6_ADDR_MC_SCOPE(&in6m->in6m_addr) > __IPV6_ADDR_SCOPE_INTFACELOCAL)
-		mld6_sendpkt(in6m, MLD_LISTENER_DONE,
-		    &mld_all_routers_linklocal);
+	    (!IN6_ARE_ADDR_EQUAL(&in6m->in6m_addr, &all_nodes)) &&
+	    __IPV6_ADDR_MC_SCOPE(&in6m->in6m_addr) >
+	    __IPV6_ADDR_SCOPE_INTFACELOCAL)
+		mld6_sendpkt(in6m, MLD_LISTENER_DONE, &all_routers);
 }
 
 void
@@ -163,6 +168,8 @@ mld6_input(struct mbuf *m, int off)
 	struct in6_multi *in6m;
 	struct ifmaddr *ifma;
 	int timer;		/* timer value in the MLD query header */
+	/* XXX: These are necessary for KAME's link-local hack */
+	struct in6_addr all_nodes = IN6ADDR_LINKLOCAL_ALLNODES_INIT;
 
 	IP6_EXTHDR_GET(mldh, struct mld_hdr *, m, off, sizeof(*mldh));
 	if (mldh == NULL) {
@@ -239,15 +246,13 @@ mld6_input(struct mbuf *m, int off)
 		timer = ntohs(mldh->mld_maxdelay)*PR_FASTHZ/MLD_TIMER_SCALE;
 		if (timer == 0 && mldh->mld_maxdelay)
 			timer = 1;
-		mld_all_nodes_linklocal.s6_addr16[1] =
-			htons(ifp->if_index); /* XXX */
+		all_nodes.s6_addr16[1] = htons(ifp->if_index);
 
 		TAILQ_FOREACH(ifma, &ifp->if_maddrlist, ifma_list) {
 			if (ifma->ifma_addr->sa_family != AF_INET6)
 				continue;
 			in6m = ifmatoin6m(ifma);
-			if (IN6_ARE_ADDR_EQUAL(&in6m->in6m_addr,
-						&mld_all_nodes_linklocal) ||
+			if (IN6_ARE_ADDR_EQUAL(&in6m->in6m_addr, &all_nodes) ||
 			    __IPV6_ADDR_MC_SCOPE(&in6m->in6m_addr) <
 			    __IPV6_ADDR_SCOPE_LINKLOCAL)
 				continue;
@@ -266,7 +271,7 @@ mld6_input(struct mbuf *m, int off)
 					in6m->in6m_timer > timer) {
 					in6m->in6m_timer =
 					    MLD_RANDOM_DELAY(timer);
-					mld_timers_are_running = 1;
+					mld6_timers_are_running = 1;
 				}
 			}
 		}
@@ -327,20 +332,22 @@ mld6_fasttimeo(void)
 {
 	struct ifnet *ifp;
 
-	NET_LOCK();
-
 	/*
 	 * Quick check to see if any work needs to be done, in order
 	 * to minimize the overhead of fasttimo processing.
+	 * Variable mld6_timers_are_running is read atomically, but without
+	 * lock intentionally.  In case it is not set due to MP races, we may
+	 * miss to check the timers.  Then run the loop at next fast timeout.
 	 */
-	if (!mld_timers_are_running)
-		goto out;
+	if (!mld6_timers_are_running)
+		return;
 
-	mld_timers_are_running = 0;
-	TAILQ_FOREACH(ifp, &ifnet, if_list)
+	NET_LOCK();
+
+	mld6_timers_are_running = 0;
+	TAILQ_FOREACH(ifp, &ifnetlist, if_list)
 		mld6_checktimer(ifp);
 
-out:
 	NET_UNLOCK();
 }
 
@@ -362,7 +369,7 @@ mld6_checktimer(struct ifnet *ifp)
 			mld6_sendpkt(in6m, MLD_LISTENER_REPORT, NULL);
 			in6m->in6m_state = MLD_IREPORTEDLAST;
 		} else {
-			mld_timers_are_running = 1;
+			mld6_timers_are_running = 1;
 		}
 	}
 }

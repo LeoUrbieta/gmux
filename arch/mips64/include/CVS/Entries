@@ -6,7 +6,6 @@
 /autoconf.h/1.2/Thu Jun  8 12:02:52 2017//
 /cache.h/1.9/Wed Dec 21 13:59:57 2016//
 /cdefs.h/1.6/Thu Mar 28 17:30:45 2013//
-/cpu.h/1.138/Fri Jan 28 16:20:09 2022//
 /cpustate.h/1.11/Sun Sep 27 18:17:08 2015//
 /db_machdep.h/1.21/Mon Aug 30 08:11:12 2021//
 /endian.h/1.9/Sat Jul 12 16:25:08 2014//
@@ -44,4 +43,5 @@
 /timetc.h/1.3/Sat Jul 18 08:37:43 2020//
 /trap.h/1.17/Fri Jan 28 16:20:09 2022//
 /vmparam.h/1.29/Fri Dec 23 12:38:16 2016//
+/cpu.h/1.139/Fri Sep  9 15:06:19 2022//
 D

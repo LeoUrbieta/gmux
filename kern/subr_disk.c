@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_disk.c,v 1.254 2022/08/20 13:10:45 krw Exp $	*/
+/*	$OpenBSD: subr_disk.c,v 1.260 2022/09/03 15:29:43 kettenis Exp $	*/
 /*	$NetBSD: subr_disk.c,v 1.17 1996/03/16 23:17:08 christos Exp $	*/
 
 /*
@@ -88,6 +88,8 @@ int	disk_change;		/* set if a disk has been attached/detached
 u_char	bootduid[DUID_SIZE];	/* DUID of boot disk. */
 u_char	rootduid[DUID_SIZE];	/* DUID of root disk. */
 
+struct device *rootdv;
+
 /* softraid callback, do not use! */
 void (*softraid_disk_attach)(struct disk *, int);
 
@@ -154,8 +156,6 @@ initdisklabel(struct disklabel *lp)
 	DL_SETBSTART(lp, 0);
 	DL_SETBEND(lp, DL_GETDSIZE(lp));
 	lp->d_version = 1;
-	lp->d_bbsize = 8192;
-	lp->d_sbsize = 64*1024;			/* XXX ? */
 	return (0);
 }
 
@@ -236,8 +236,6 @@ checkdisklabel(void *rlp, struct disklabel *lp, u_int64_t boundstart,
 		dlp->d_magic2 = swap32(dlp->d_magic2);
 
 		dlp->d_npartitions = swap16(dlp->d_npartitions);
-		dlp->d_bbsize = swap32(dlp->d_bbsize);
-		dlp->d_sbsize = swap32(dlp->d_sbsize);
 
 		for (i = 0; i < MAXPARTITIONS; i++) {
 			pp = &dlp->d_partitions[i];
@@ -464,7 +462,6 @@ gpt_get_hdr(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 {
 	struct gpt_header	ngh;
 	int			error;
-	uint64_t		partlba;
 	uint64_t		lbaend, lbastart;
 	uint32_t		csum;
 	uint32_t		size, partsize;
@@ -478,7 +475,6 @@ gpt_get_hdr(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 
 	size = letoh32(ngh.gh_size);
 	partsize = letoh32(ngh.gh_part_size);
-	partlba = letoh64(ngh.gh_part_lba);
 	lbaend = letoh64(ngh.gh_lba_end);
 	lbastart = letoh64(ngh.gh_lba_start);
 
@@ -488,8 +484,7 @@ gpt_get_hdr(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 
 	if (letoh64(ngh.gh_sig) == GPTSIGNATURE &&
 	    letoh32(ngh.gh_rev) == GPTREVISION &&
-	    size == GPTMINHDRSIZE && lbastart < lbaend &&
-	    lbastart < DL_GETDSIZE(lp) && lbaend < DL_GETDSIZE(lp) &&
+	    size == GPTMINHDRSIZE && lbastart <= lbaend &&
 	    partsize == GPTMINPARTSIZE && lp->d_secsize % partsize == 0 &&
 	    csum == ngh.gh_csum)
 		*gh = ngh;
@@ -597,17 +592,16 @@ int
 spoofgpt(struct buf *bp, void (*strat)(struct buf *), const uint8_t *dosbb,
     struct disklabel *lp, daddr_t *partoffp)
 {
-	static const uint8_t	 gpt_uuid_openbsd[] = GPT_UUID_OPENBSD;
 	struct dos_partition	 dp[NDOSPART];
 	struct gpt_header	 gh;
-	struct uuid		 gptype, uuid_openbsd;
+	struct uuid		 gptype;
 	struct gpt_partition	*gp;
 	struct partition	*pp;
-	uint64_t		 lbaend, lbastart;
+	uint64_t		 lbaend, lbastart, labelsec;
 	uint64_t		 gpbytes, end, start;
-	daddr_t			 labeloff, partoff;
+	daddr_t			 partoff;
 	unsigned int		 i, n;
-	int			 error, obsdfound;
+	int			 error, fstype, obsdfound;
 	uint32_t		 partnum;
 	uint16_t		 sig;
 
@@ -641,7 +635,6 @@ spoofgpt(struct buf *bp, void (*strat)(struct buf *), const uint8_t *dosbb,
 	partnum = letoh32(gh.gh_part_num);
 
 	n = 'i' - 'a';	/* Start spoofing at 'i', a.k.a. 8. */
-	uuid_dec_be(gpt_uuid_openbsd, &uuid_openbsd);
 
 	DL_SETBSTART(lp, lbastart);
 	DL_SETBEND(lp, lbaend + 1);
@@ -649,33 +642,41 @@ spoofgpt(struct buf *bp, void (*strat)(struct buf *), const uint8_t *dosbb,
 	obsdfound = 0;
 	for (i = 0; i < partnum; i++) {
 		start = letoh64(gp[i].gp_lba_start);
-		end = letoh64(gp[i].gp_lba_end) + 1;
-		if (start >= end || start < lbastart || end > lbaend + 1)
+		if (start > lbaend || start < lbastart)
 			continue;
-		if (obsdfound == 0) {
-			labeloff = partoff + DOS_LABELSECTOR;
-			if (labeloff >= DL_SECTOBLK(lp, start) &&
-			    labeloff < DL_SECTOBLK(lp, end))
+
+		end = letoh64(gp[i].gp_lba_end);
+		if (start > end)
+			continue;
+
+		uuid_dec_le(&gp[i].gp_type, &gptype);
+		fstype = gpt_get_fstype(&gptype);
+		if (obsdfound && fstype == FS_BSDFFS)
+			continue;
+
+		if (fstype == FS_BSDFFS) {
+			obsdfound = 1;
+			partoff = DL_SECTOBLK(lp, start);
+			labelsec = DL_BLKTOSEC(lp, partoff + DOS_LABELSECTOR);
+			if (labelsec > ((end < lbaend) ? end : lbaend))
+				partoff = -1;
+			DL_SETBSTART(lp, start);
+			DL_SETBEND(lp, end + 1);
+			continue;
+		}
+
+		if (partoff != -1) {
+			labelsec = DL_BLKTOSEC(lp, partoff + DOS_LABELSECTOR);
+			if (labelsec >= start && labelsec <= end)
 				partoff = -1;
 		}
 
-		uuid_dec_le(&gp[i].gp_type, &gptype);
-		if (memcmp(&gptype, &uuid_openbsd, sizeof(gptype)) == 0) {
-			if (obsdfound == 0) {
-				obsdfound = 1;
-				partoff = DL_SECTOBLK(lp, start);
-				labeloff = partoff + DOS_LABELSECTOR;
-				if (labeloff >= DL_SECTOBLK(lp, end))
-					partoff = -1;
-				DL_SETBSTART(lp, start);
-				DL_SETBEND(lp, end);
-			}
-		} else if (n < MAXPARTITIONS) {
+		if (n < MAXPARTITIONS && end <= lbaend) {
 			pp = &lp->d_partitions[n];
 			n++;
-			pp->p_fstype = gpt_get_fstype(&gptype);
+			pp->p_fstype = fstype;
 			DL_SETPOFFSET(pp, start);
-			DL_SETPSIZE(pp, end - start);
+			DL_SETPSIZE(pp, end - start + 1);
 		}
 	}
 
@@ -1408,7 +1409,7 @@ setroot(struct device *bootdv, int part, int exitflags)
 {
 	int majdev, unit, len, s, slept = 0;
 	struct swdevt *swp;
-	struct device *rootdv, *dv;
+	struct device *dv;
 	dev_t nrootdev, nswapdev = NODEV, temp = NODEV;
 	struct ifnet *ifp = NULL;
 	struct disk *dk;
@@ -1665,7 +1666,7 @@ gotswap:
 	printf("\n");
 }
 
-extern struct nam2blk nam2blk[];
+extern const struct nam2blk nam2blk[];
 
 int
 findblkmajor(struct device *dv)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.147 2022/08/12 02:20:36 cheloha Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.150 2022/08/30 17:09:21 dv Exp $	*/
 /*	$NetBSD: cpu.h,v 1.1 2003/04/26 18:39:39 fvdl Exp $	*/
 
 /*-
@@ -82,6 +82,7 @@ struct svm {
 	uint32_t	svm_max_asid;
 	uint8_t		svm_flush_by_asid;
 	uint8_t		svm_vmcb_clean;
+	uint8_t		svm_decode_assist;
 };
 
 union vmm_cpu_cap {
@@ -359,6 +360,7 @@ void signotify(struct proc *);
  * We need a machine-independent name for this.
  */
 extern void (*delay_func)(int);
+void delay_init(void (*)(int), int);
 struct timeval;
 
 #define DELAY(x)		(*delay_func)(x)
@@ -369,7 +371,6 @@ struct timeval;
 /* locore.S */
 extern int biosbasemem;
 extern int biosextmem;
-extern int cpu;
 extern int cpu_feature;
 extern int cpu_ebxfeature;
 extern int cpu_ecxfeature;

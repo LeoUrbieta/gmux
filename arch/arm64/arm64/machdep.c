@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.70 2022/07/27 21:01:38 kettenis Exp $ */
+/* $OpenBSD: machdep.c,v 1.72 2022/09/05 19:18:56 kettenis Exp $ */
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2021 Mark Kettenis <kettenis@openbsd.org>
@@ -963,19 +963,19 @@ initarm(struct arm64_bootparams *abp)
 		/*
 		 * Load all memory marked as EfiConventionalMemory,
 		 * EfiBootServicesCode or EfiBootServicesData.
-		 * Don't bother with blocks smaller than 64KB.  The
-		 * initial 64MB memory block should be marked as
+		 * The initial 64MB memory block should be marked as
 		 * EfiLoaderData so it won't be added here.
 		 */
 		for (i = 0; i < mmap_size / mmap_desc_size; i++) {
+#ifdef MMAP_DEBUG
 			printf("type 0x%x pa 0x%llx va 0x%llx pages 0x%llx attr 0x%llx\n",
 			    desc->Type, desc->PhysicalStart,
 			    desc->VirtualStart, desc->NumberOfPages,
 			    desc->Attribute);
-			if ((desc->Type == EfiConventionalMemory ||
-			     desc->Type == EfiBootServicesCode ||
-			     desc->Type == EfiBootServicesData) &&
-			    desc->NumberOfPages >= 16) {
+#endif
+			if (desc->Type == EfiConventionalMemory ||
+			    desc->Type == EfiBootServicesCode ||
+			    desc->Type == EfiBootServicesData) {
 				reg.addr = desc->PhysicalStart;
 				reg.size = ptoa(desc->NumberOfPages);
 				memreg_add(&reg);

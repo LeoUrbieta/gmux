@@ -1,7 +1,6 @@
 /_float.h/1.1/Tue Jun 26 16:12:45 2012//
 /_types.h/1.23/Mon Mar  5 01:15:25 2018//
 /apmvar.h/1.7/Tue Jan 22 02:36:30 2019//
-/asm.h/1.14/Sat Jan  1 23:47:14 2022//
 /atomic.h/1.15/Tue Jul  4 09:00:12 2017//
 /autoconf.h/1.18/Thu Jun 26 05:42:13 2008//
 /boot_flag.h/1.7/Mon May 25 15:31:59 2020//
@@ -36,7 +35,6 @@
 /param.h/1.41/Fri Sep 14 13:58:20 2018//
 /pcb.h/1.10/Tue May  5 02:13:47 2015//
 /pci_machdep.h/1.38/Tue Jun 23 01:21:29 2020//
-/pmap.h/1.30/Thu Apr  9 16:56:52 2015//
 /proc.h/1.7/Thu Apr 13 03:52:25 2017//
 /profile.h/1.4/Wed Aug 22 17:19:35 2012//
 /psl.h/1.35/Sat Jun 29 15:41:21 2019//
@@ -55,4 +53,6 @@
 /vmparam.h/1.33/Tue Aug  3 04:45:54 2021//
 /z8530var.h/1.8/Sun Apr 21 14:44:16 2013//
 /conf.h/1.27/Sun Jul  3 00:30:41 2022//
+/asm.h/1.15/Fri Sep  9 15:06:22 2022//
+/pmap.h/1.31/Fri Sep  9 15:06:22 2022//
 D

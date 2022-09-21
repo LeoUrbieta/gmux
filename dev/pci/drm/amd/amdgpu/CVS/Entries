@@ -215,7 +215,6 @@
 /gfxhub_v2_0.h/1.2/Wed Jul  7 02:38:23 2021//
 /gfxhub_v2_1.c/1.2/Fri Jan 14 06:53:00 2022//
 /gfxhub_v2_1.h/1.1/Wed Jul  7 02:38:23 2021//
-/gmc_v10_0.c/1.7/Thu Apr 21 09:36:10 2022//
 /gmc_v10_0.h/1.1/Mon Jun  8 04:47:59 2020//
 /gmc_v6_0.c/1.5/Fri Jan 14 06:53:00 2022//
 /gmc_v6_0.h/1.1/Tue May 21 22:40:07 2019//
@@ -223,7 +222,6 @@
 /gmc_v7_0.h/1.1/Tue May 21 22:40:07 2019//
 /gmc_v8_0.c/1.7/Thu Apr 21 09:36:10 2022//
 /gmc_v8_0.h/1.1/Tue May 21 22:40:07 2019//
-/gmc_v9_0.c/1.15/Thu Apr 21 09:36:10 2022//
 /gmc_v9_0.h/1.3/Wed Jul  7 02:38:23 2021//
 /hdp_v4_0.c/1.1/Fri Jan 14 06:53:00 2022//
 /hdp_v4_0.h/1.1/Fri Jan 14 06:53:00 2022//
@@ -387,7 +385,6 @@
 /sdma_v5_2.c/1.3/Sun Jul  3 00:30:45 2022//
 /amdgpu_amdkfd.c/1.7/Sun Jul 10 05:32:22 2022//
 /amdgpu_irq.c/1.7/Sun Jul 10 05:32:22 2022//
-/amdgpu.h/1.11/Sun Jul 31 23:28:48 2022//
 /amdgpu_cik.c/1.6/Sun Jul 31 23:28:48 2022//
 /amdgpu_device.c/1.32/Sun Jul 31 23:28:48 2022//
 /amdgpu_kms.c/1.27/Sun Jul 31 23:28:48 2022//
@@ -399,4 +396,7 @@
 /amdgpu_amdkfd_gpuvm.c/1.7/Sun Aug 21 22:32:00 2022//
 /amdgpu_fb.c/1.6/Sun Aug 21 22:32:00 2022//
 /amdgpu_object.c/1.10/Sun Aug 21 22:32:00 2022//
+/amdgpu.h/1.12/Fri Sep  9 15:06:26 2022//
+/gmc_v10_0.c/1.8/Fri Sep  9 15:06:26 2022//
+/gmc_v9_0.c/1.16/Fri Sep  9 15:06:26 2022//
 D

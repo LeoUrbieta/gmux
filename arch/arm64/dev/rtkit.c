@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtkit.c,v 1.4 2022/06/12 16:00:12 kettenis Exp $	*/
+/*	$OpenBSD: rtkit.c,v 1.6 2022/09/03 19:04:28 kettenis Exp $	*/
 /*
  * Copyright (c) 2021 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -39,8 +39,7 @@
 #define RTKIT_MGMT_TYPE(x)		(((x) >> 52) & 0xff)
 #define RTKIT_MGMT_TYPE_SHIFT		52
 
-#define RTKIT_MGMT_PWR_STATE(x)		(((x) >> 0) & 0xff)
-#define RTKIT_MGMT_PWR_STATE_ON		0x20
+#define RTKIT_MGMT_PWR_STATE(x)		(((x) >> 0) & 0xffff)
 
 #define RTKIT_MGMT_HELLO		1
 #define RTKIT_MGMT_HELLO_ACK		2
@@ -48,6 +47,7 @@
 #define RTKIT_MGMT_IOP_PWR_STATE	6
 #define RTKIT_MGMT_IOP_PWR_STATE_ACK	7
 #define RTKIT_MGMT_EPMAP		8
+#define RTKIT_MGMT_AP_PWR_STATE		11
 
 #define RTKIT_MGMT_HELLO_MINVER(x)	(((x) >> 0) & 0xffff)
 #define RTKIT_MGMT_HELLO_MINVER_SHIFT	0
@@ -68,6 +68,9 @@
 #define RTKIT_BUFFER_SIZE(x)		(((x) >> 44) & 0xff)
 #define RTKIT_BUFFER_SIZE_SHIFT		44
 
+#define RTKIT_SYSLOG_LOG		5
+#define RTKIT_SYSLOG_INIT		8
+
 #define RTKIT_IOREPORT_UNKNOWN1		8
 #define RTKIT_IOREPORT_UNKNOWN2		12
 
@@ -78,7 +81,8 @@
 struct rtkit_state {
 	struct mbox_channel	*mc;
 	struct rtkit		*rk;
-	int			pwrstate;
+	uint16_t		iop_pwrstate;
+	uint16_t		ap_pwrstate;
 	uint64_t		epmap;
 	void			(*callback[32])(void *, uint64_t);
 	void			*arg[32];
@@ -114,11 +118,25 @@ bus_addr_t
 rtkit_alloc(struct rtkit *rk, bus_size_t size)
 {
 	bus_dma_segment_t seg;
+	bus_dmamap_t map;
 	int nsegs;
 
 	if (bus_dmamem_alloc(rk->rk_dmat, size, 16384, 0,
 	    &seg, 1, &nsegs, BUS_DMA_WAITOK | BUS_DMA_ZERO))
 		return (bus_addr_t)-1;
+
+	if (bus_dmamap_create(rk->rk_dmat, size, 1, size, 0,
+	    BUS_DMA_WAITOK, &map)) {
+		bus_dmamem_free(rk->rk_dmat, &seg, 1);
+		return (bus_addr_t)-1;
+	}
+	
+	if (bus_dmamap_load_raw(rk->rk_dmat, map, &seg, 1, size,
+	    BUS_DMA_WAITOK)) {
+		bus_dmamap_destroy(rk->rk_dmat, map);
+		bus_dmamem_free(rk->rk_dmat, &seg, 1);
+		return (bus_addr_t)-1;
+	}
 
 	return seg.ds_addr;
 }
@@ -164,11 +182,12 @@ rtkit_handle_mgmt(struct rtkit_state *state, struct aplmbox_msg *msg)
 		if (error)
 			return error;
 		break;
-
 	case RTKIT_MGMT_IOP_PWR_STATE_ACK:
-		state->pwrstate = RTKIT_MGMT_PWR_STATE(msg->data0);
+		state->iop_pwrstate = RTKIT_MGMT_PWR_STATE(msg->data0);
 		break;
-
+	case RTKIT_MGMT_AP_PWR_STATE:
+		state->ap_pwrstate = RTKIT_MGMT_PWR_STATE(msg->data0);
+		break;
 	case RTKIT_MGMT_EPMAP:
 		base = RTKIT_MGMT_EPMAP_BASE(msg->data0);
 		bitmap = RTKIT_MGMT_EPMAP_BITMAP(msg->data0);
@@ -233,10 +252,12 @@ rtkit_handle_crashlog(struct rtkit_state *state, struct aplmbox_msg *msg)
 			addr = rtkit_alloc(rk, size << PAGE_SHIFT);
 			if (addr == (bus_addr_t)-1)
 				return ENOMEM;
-			error = rk->rk_map(rk->rk_cookie, addr,
-			    size << PAGE_SHIFT);
-			if (error)
-				return error;
+			if (rk->rk_map) {
+				error = rk->rk_map(rk->rk_cookie, addr,
+				    size << PAGE_SHIFT);
+				if (error)
+					return error;
+			}
 		}
 
 		error = rtkit_send(mc, RTKIT_EP_CRASHLOG, RTKIT_BUFFER_REQUEST,
@@ -246,6 +267,56 @@ rtkit_handle_crashlog(struct rtkit_state *state, struct aplmbox_msg *msg)
 		break;
 	default:
 		printf("%s: unhandled crashlog event 0x%016llx\n",
+		    __func__, msg->data0);
+		return EIO;
+	}
+
+	return 0;
+}
+
+int
+rtkit_handle_syslog(struct rtkit_state *state, struct aplmbox_msg *msg)
+{
+	struct mbox_channel *mc = state->mc;
+	struct rtkit *rk = state->rk;
+	bus_addr_t addr;
+	bus_size_t size;
+	int error;
+
+	switch (RTKIT_MGMT_TYPE(msg->data0)) {
+	case RTKIT_BUFFER_REQUEST:
+		addr = RTKIT_BUFFER_ADDR(msg->data0);
+		size = RTKIT_BUFFER_SIZE(msg->data0);
+		if (addr)
+			break;
+
+		if (rk) {
+			addr = rtkit_alloc(rk, size << PAGE_SHIFT);
+			if (addr == (bus_addr_t)-1)
+				return ENOMEM;
+			if (rk->rk_map) {
+				error = rk->rk_map(rk->rk_cookie, addr,
+				    size << PAGE_SHIFT);
+				if (error)
+					return error;
+			}
+		}
+
+		error = rtkit_send(mc, RTKIT_EP_SYSLOG, RTKIT_BUFFER_REQUEST,
+		    (size << RTKIT_BUFFER_SIZE_SHIFT) | addr);
+		if (error)
+			return error;
+		break;
+	case RTKIT_SYSLOG_INIT:
+		break;
+	case RTKIT_SYSLOG_LOG:
+		error = rtkit_send(mc, RTKIT_EP_SYSLOG,
+		    RTKIT_MGMT_TYPE(msg->data0), msg->data0);
+		if (error)
+			return error;
+		break;
+	default:
+		printf("%s: unhandled syslog event 0x%016llx\n",
 		    __func__, msg->data0);
 		return EIO;
 	}
@@ -273,10 +344,12 @@ rtkit_handle_ioreport(struct rtkit_state *state, struct aplmbox_msg *msg)
 			addr = rtkit_alloc(rk, size << PAGE_SHIFT);
 			if (addr == (bus_addr_t)-1)
 				return ENOMEM;
-			error = rk->rk_map(rk->rk_cookie, addr,
-			    size << PAGE_SHIFT);
-			if (error)
-				return error;
+			if (rk->rk_map) {
+				error = rk->rk_map(rk->rk_cookie, addr,
+				    size << PAGE_SHIFT);
+				if (error)
+					return error;
+			}
 		}
 
 		error = rtkit_send(mc, RTKIT_EP_IOREPORT, RTKIT_BUFFER_REQUEST,
@@ -327,6 +400,11 @@ rtkit_poll(struct rtkit_state *state)
 		if (error)
 			return error;
 		break;
+	case RTKIT_EP_SYSLOG:
+		error = rtkit_handle_syslog(state, &msg);
+		if (error)
+			return error;
+		break;
 	case RTKIT_EP_IOREPORT:
 		error = rtkit_handle_ioreport(state, &msg);
 		if (error)
@@ -370,6 +448,9 @@ rtkit_init(int node, const char *name, struct rtkit *rk)
 	}
 	state->rk = rk;
 
+	state->iop_pwrstate = RTKIT_MGMT_PWR_STATE_SLEEP;
+	state->ap_pwrstate = RTKIT_MGMT_PWR_STATE_QUIESCED;
+	
 	return state;
 }
 
@@ -385,7 +466,27 @@ rtkit_boot(struct rtkit_state *state)
 	if (error)
 		return error;
 
-	while (state->pwrstate != RTKIT_MGMT_PWR_STATE_ON)
+	while (state->iop_pwrstate != RTKIT_MGMT_PWR_STATE_ON)
+		rtkit_poll(state);
+
+	return 0;
+}
+
+int
+rtkit_set_ap_pwrstate(struct rtkit_state *state, uint16_t pwrstate)
+{
+	struct mbox_channel *mc = state->mc;
+	int error;
+
+	if (state->ap_pwrstate == pwrstate)
+		return 0;
+
+	error = rtkit_send(mc, RTKIT_EP_MGMT, RTKIT_MGMT_AP_PWR_STATE,
+	    pwrstate);
+	if (error)
+		return error;
+
+	while (state->ap_pwrstate != pwrstate)
 		rtkit_poll(state);
 
 	return 0;

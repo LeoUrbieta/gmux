@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsock.c,v 1.337 2022/08/21 17:30:21 mvs Exp $	*/
+/*	$OpenBSD: rtsock.c,v 1.355 2022/09/08 10:22:06 kn Exp $	*/
 /*	$NetBSD: rtsock.c,v 1.18 1996/03/29 00:32:10 cgd Exp $	*/
 
 /*
@@ -109,11 +109,18 @@ struct walkarg {
 void	route_prinit(void);
 void	rcb_ref(void *, void *);
 void	rcb_unref(void *, void *);
-int	route_output(struct mbuf *, struct socket *, struct sockaddr *,
-	    struct mbuf *);
+int	route_output(struct mbuf *, struct socket *);
 int	route_ctloutput(int, struct socket *, int, int, struct mbuf *);
-int	route_usrreq(struct socket *, int, struct mbuf *, struct mbuf *,
-	    struct mbuf *, struct proc *);
+int	route_attach(struct socket *, int);
+int	route_detach(struct socket *);
+int	route_disconnect(struct socket *);
+int	route_shutdown(struct socket *);
+int	route_rcvd(struct socket *);
+int	route_send(struct socket *, struct mbuf *, struct mbuf *,
+	    struct mbuf *);
+int	route_abort(struct socket *);
+int	route_sockaddr(struct socket *, struct mbuf *);
+int	route_peeraddr(struct socket *, struct mbuf *);
 void	route_input(struct mbuf *m0, struct socket *, sa_family_t);
 int	route_arp_conflict(struct rtentry *, struct rt_addrinfo *);
 int	route_cleargateway(struct rtentry *, void *, unsigned int);
@@ -209,92 +216,6 @@ rcb_unref(void *null, void *v)
 }
 
 int
-route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
-    struct mbuf *control, struct proc *p)
-{
-	struct rtpcb	*rop;
-	int		 error = 0;
-
-	if (req == PRU_CONTROL)
-		return (EOPNOTSUPP);
-
-	soassertlocked(so);
-
-	if (control && control->m_len) {
-		error = EOPNOTSUPP;
-		goto release;
-	}
-
-	rop = sotortpcb(so);
-	if (rop == NULL) {
-		error = EINVAL;
-		goto release;
-	}
-
-	switch (req) {
-	/* no connect, bind, accept. Socket is connected from the start */
-	case PRU_CONNECT:
-	case PRU_CONNECT2:
-	case PRU_ACCEPT:
-		error = EOPNOTSUPP;
-		break;
-
-	case PRU_DISCONNECT:
-	case PRU_ABORT:
-		soisdisconnected(so);
-		break;
-	case PRU_SHUTDOWN:
-		socantsendmore(so);
-		break;
-	case PRU_SENSE:
-		/* stat: don't bother with a blocksize. */
-		break;
-
-	/* minimal support, just implement a fake peer address */
-	case PRU_SOCKADDR:
-		error = EINVAL;
-		break;
-	case PRU_PEERADDR:
-		bcopy(&route_src, mtod(nam, caddr_t), route_src.sa_len);
-		nam->m_len = route_src.sa_len;
-		break;
-
-	case PRU_RCVD:
-		/*
-		 * If we are in a FLUSH state, check if the buffer is
-		 * empty so that we can clear the flag.
-		 */
-		if (((rop->rop_flags & ROUTECB_FLAG_FLUSH) != 0) &&
-		    ((sbspace(rop->rop_socket, &rop->rop_socket->so_rcv) ==
-		    rop->rop_socket->so_rcv.sb_hiwat)))
-			rop->rop_flags &= ~ROUTECB_FLAG_FLUSH;
-		break;
-
-	case PRU_RCVOOB:
-	case PRU_SENDOOB:
-		error = EOPNOTSUPP;
-		break;
-	case PRU_SEND:
-		if (nam) {
-			error = EISCONN;
-			break;
-		}
-		error = (*so->so_proto->pr_output)(m, so, NULL, NULL);
-		m = NULL;
-		break;
-	default:
-		panic("route_usrreq");
-	}
-
- release:
-	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
-		m_freem(control);
-		m_freem(m);
-	}
-	return (error);
-}
-
-int
 route_attach(struct socket *so, int proto)
 {
 	struct rtpcb	*rop;
@@ -361,6 +282,89 @@ route_detach(struct socket *so)
 	KASSERT((so->so_state & SS_NOFDREF) == 0);
 	pool_put(&rtpcb_pool, rop);
 
+	return (0);
+}
+
+int
+route_disconnect(struct socket *so)
+{
+	soisdisconnected(so);
+	return (0);
+}
+
+int
+route_shutdown(struct socket *so)
+{
+	socantsendmore(so);
+	return (0);
+}
+
+int
+route_rcvd(struct socket *so)
+{
+	struct rtpcb *rop = sotortpcb(so);
+
+	soassertlocked(so);
+
+	/*
+	 * If we are in a FLUSH state, check if the buffer is
+	 * empty so that we can clear the flag.
+	 */
+	if (((rop->rop_flags & ROUTECB_FLAG_FLUSH) != 0) &&
+	    ((sbspace(rop->rop_socket, &rop->rop_socket->so_rcv) ==
+	    rop->rop_socket->so_rcv.sb_hiwat)))
+		rop->rop_flags &= ~ROUTECB_FLAG_FLUSH;
+
+	return (0);
+}
+
+int
+route_send(struct socket *so, struct mbuf *m, struct mbuf *nam,
+    struct mbuf *control)
+{
+	int error;
+
+	soassertlocked(so);
+
+	if (control && control->m_len) {
+		error = EOPNOTSUPP;
+		goto out;
+	}
+
+	if (nam) {
+		error = EISCONN;
+		goto out;
+	}
+
+	error = route_output(m, so);
+	m = NULL;
+
+out:
+	m_freem(control);
+	m_freem(m);
+
+	return (error);
+}
+
+int
+route_abort(struct socket *so)
+{
+	soisdisconnected(so);
+	return (0);
+}
+
+int
+route_sockaddr(struct socket *so, struct mbuf *nam)
+{
+	return (EINVAL);
+}
+
+int
+route_peeraddr(struct socket *so, struct mbuf *nam)
+{
+	/* minimal support, just implement a fake peer address */
+	bcopy(&route_src, mtod(nam, caddr_t), route_src.sa_len);
+	nam->m_len = route_src.sa_len;
 	return (0);
 }
 
@@ -681,8 +685,7 @@ rtm_report(struct rtentry *rt, u_char type, int seq, int tableid)
 }
 
 int
-route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
-    struct mbuf *control)
+route_output(struct mbuf *m, struct socket *so)
 {
 	struct rt_msghdr	*rtm = NULL;
 	struct rtentry		*rt = NULL;
@@ -847,7 +850,7 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 		 */
 		if (rtm->rtm_priority == RTP_PROPOSAL_SOLICIT) {
 			NET_LOCK();
-			TAILQ_FOREACH(ifp, &ifnet, if_list) {
+			TAILQ_FOREACH(ifp, &ifnetlist, if_list) {
 				ifp->if_rtrequest(ifp, RTM_PROPOSAL, NULL);
 			}
 			NET_UNLOCK();
@@ -1105,8 +1108,7 @@ rtm_output(struct rt_msghdr *rtm, struct rtentry **prt,
 				ifp->if_rtrequest(ifp, RTM_DELETE, rt);
 				ifafree(rt->rt_ifa);
 
-				ifa->ifa_refcnt++;
-				rt->rt_ifa = ifa;
+				rt->rt_ifa = ifaref(ifa);
 				rt->rt_ifidx = ifa->ifa_ifp->if_index;
 				/* recheck link state after ifp change */
 				rt_if_linkstate_change(rt, ifa->ifa_ifp,
@@ -2025,7 +2027,7 @@ sysctl_iflist(int af, struct walkarg *w)
 	int			 len, error = 0;
 
 	bzero(&info, sizeof(info));
-	TAILQ_FOREACH(ifp, &ifnet, if_list) {
+	TAILQ_FOREACH(ifp, &ifnetlist, if_list) {
 		if (w->w_arg && w->w_arg != ifp->if_index)
 			continue;
 		/* Copy the link-layer address first */
@@ -2083,7 +2085,7 @@ sysctl_ifnames(struct walkarg *w)
 	int error = 0;
 
 	/* XXX ignore tableid for now */
-	TAILQ_FOREACH(ifp, &ifnet, if_list) {
+	TAILQ_FOREACH(ifp, &ifnetlist, if_list) {
 		if (w->w_arg && w->w_arg != ifp->if_index)
 			continue;
 		w->w_needed += sizeof(ifn);
@@ -2400,9 +2402,15 @@ rt_setsource(unsigned int rtableid, struct sockaddr *src)
  */
 
 const struct pr_usrreqs route_usrreqs = {
-	.pru_usrreq	= route_usrreq,
 	.pru_attach	= route_attach,
 	.pru_detach	= route_detach,
+	.pru_disconnect	= route_disconnect,
+	.pru_shutdown	= route_shutdown,
+	.pru_rcvd	= route_rcvd,
+	.pru_send	= route_send,
+	.pru_abort	= route_abort,
+	.pru_sockaddr	= route_sockaddr,
+	.pru_peeraddr	= route_peeraddr,
 };
 
 const struct protosw routesw[] = {
@@ -2410,7 +2418,6 @@ const struct protosw routesw[] = {
   .pr_type	= SOCK_RAW,
   .pr_domain	= &routedomain,
   .pr_flags	= PR_ATOMIC|PR_ADDR|PR_WANTRCVD,
-  .pr_output	= route_output,
   .pr_ctloutput	= route_ctloutput,
   .pr_usrreqs	= &route_usrreqs,
   .pr_init	= route_prinit,

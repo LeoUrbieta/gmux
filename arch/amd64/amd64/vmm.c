@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.319 2022/08/07 23:56:06 guenther Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.323 2022/09/07 18:44:09 dv Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -3522,7 +3522,9 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_reg_state *vrs)
 	vmx_setmsrbrw(vcpu, MSR_FSBASE);
 	vmx_setmsrbrw(vcpu, MSR_GSBASE);
 	vmx_setmsrbrw(vcpu, MSR_KERNELGSBASE);
+	
 	vmx_setmsrbr(vcpu, MSR_MISC_ENABLE);
+	vmx_setmsrbr(vcpu, MSR_TSC);
 
 	/* XXX CR0 shadow */
 	/* XXX CR4 shadow */
@@ -4891,11 +4893,20 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 				vcpu->vc_gueststate.vg_rax =
 				    vcpu->vc_exit.vei.vei_data;
 			break;
+		case VMX_EXIT_EPT_VIOLATION:
+			ret = vcpu_writeregs_vmx(vcpu, VM_RWREGS_GPRS, 0,
+			    &vcpu->vc_exit.vrs);
+			if (ret) {
+				printf("%s: vm %d vcpu %d failed to update "
+				    "registers\n", __func__,
+				    vcpu->vc_parent->vm_id, vcpu->vc_id);
+				return (EINVAL);
+			}
+			break;
 		case VM_EXIT_NONE:
 		case VMX_EXIT_HLT:
 		case VMX_EXIT_INT_WINDOW:
 		case VMX_EXIT_EXTINT:
-		case VMX_EXIT_EPT_VIOLATION:
 		case VMX_EXIT_CPUID:
 		case VMX_EXIT_XSETBV:
 			break;
@@ -4927,6 +4938,7 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 			break;
 #endif /* VMM_DEBUG */
 		}
+		memset(&vcpu->vc_exit, 0, sizeof(vcpu->vc_exit));
 	}
 
 	setregion(&gdt, ci->ci_gdt, GDT_SIZE - 1);
@@ -5398,7 +5410,8 @@ svm_handle_exit(struct vcpu *vcpu)
 		update_rip = 1;
 		break;
 	case SVM_VMEXIT_IOIO:
-		ret = svm_handle_inout(vcpu);
+		if (svm_handle_inout(vcpu) == 0)
+			ret = EAGAIN;
 		update_rip = 1;
 		break;
 	case SVM_VMEXIT_HLT:
@@ -5482,7 +5495,8 @@ vmx_handle_exit(struct vcpu *vcpu)
 		update_rip = 1;
 		break;
 	case VMX_EXIT_IO:
-		ret = vmx_handle_inout(vcpu);
+		if (vmx_handle_inout(vcpu) == 0)
+			ret = EAGAIN;
 		update_rip = 1;
 		break;
 	case VMX_EXIT_EXTINT:
@@ -5658,7 +5672,7 @@ vmm_get_guest_memtype(struct vm *vm, paddr_t gpa)
 
 	if (gpa >= VMM_PCI_MMIO_BAR_BASE && gpa <= VMM_PCI_MMIO_BAR_END) {
 		DPRINTF("guest mmio access @ 0x%llx\n", (uint64_t)gpa);
-		return (VMM_MEM_TYPE_REGULAR);
+		return (VMM_MEM_TYPE_MMIO);
 	}
 
 	/* XXX Use binary search? */
@@ -5782,17 +5796,30 @@ int
 svm_handle_np_fault(struct vcpu *vcpu)
 {
 	uint64_t gpa;
-	int gpa_memtype, ret;
+	int gpa_memtype, ret = 0;
 	struct vmcb *vmcb = (struct vmcb *)vcpu->vc_control_va;
+	struct vm_exit_eptviolation *vee = &vcpu->vc_exit.vee;
+	struct cpu_info *ci = curcpu();
 
-	ret = 0;
+	memset(vee, 0, sizeof(*vee));
 
 	gpa = vmcb->v_exitinfo2;
 
 	gpa_memtype = vmm_get_guest_memtype(vcpu->vc_parent, gpa);
 	switch (gpa_memtype) {
 	case VMM_MEM_TYPE_REGULAR:
+		vee->vee_fault_type = VEE_FAULT_HANDLED;
 		ret = svm_fault_page(vcpu, gpa);
+		break;
+	case VMM_MEM_TYPE_MMIO:
+		vee->vee_fault_type = VEE_FAULT_MMIO_ASSIST;
+		if (ci->ci_vmm_cap.vcc_svm.svm_decode_assist) {
+			vee->vee_insn_len = vmcb->v_n_bytes_fetched;
+			memcpy(&vee->vee_insn_bytes, vmcb->v_guest_ins_bytes,
+			    sizeof(vee->vee_insn_bytes));
+			vee->vee_insn_info |= VEE_BYTES_VALID;
+		}
+		ret = EAGAIN;
 		break;
 	default:
 		printf("unknown memory type %d for GPA 0x%llx\n",
@@ -5862,10 +5889,12 @@ vmx_fault_page(struct vcpu *vcpu, paddr_t gpa)
 int
 vmx_handle_np_fault(struct vcpu *vcpu)
 {
-	uint64_t gpa;
-	int gpa_memtype, ret;
+	uint64_t insn_len = 0, gpa;
+	int gpa_memtype, ret = 0;
+	struct vm_exit_eptviolation *vee = &vcpu->vc_exit.vee;
 
-	ret = 0;
+	memset(vee, 0, sizeof(*vee));
+
 	if (vmread(VMCS_GUEST_PHYSICAL_ADDRESS, &gpa)) {
 		printf("%s: cannot extract faulting pa\n", __func__);
 		return (EINVAL);
@@ -5874,7 +5903,21 @@ vmx_handle_np_fault(struct vcpu *vcpu)
 	gpa_memtype = vmm_get_guest_memtype(vcpu->vc_parent, gpa);
 	switch (gpa_memtype) {
 	case VMM_MEM_TYPE_REGULAR:
+		vee->vee_fault_type = VEE_FAULT_HANDLED;
 		ret = vmx_fault_page(vcpu, gpa);
+		break;
+	case VMM_MEM_TYPE_MMIO:
+		vee->vee_fault_type = VEE_FAULT_MMIO_ASSIST;
+		if (vmread(VMCS_INSTRUCTION_LENGTH, &insn_len) ||
+		    insn_len == 0 || insn_len > 15) {
+			printf("%s: failed to extract instruction length\n",
+			    __func__);
+			ret = EINVAL;
+		} else {
+			vee->vee_insn_len = (uint32_t)insn_len;
+			vee->vee_insn_info |= VEE_LEN_VALID;
+			ret = EAGAIN;
+		}
 		break;
 	default:
 		printf("unknown memory type %d for GPA 0x%llx\n",
@@ -5995,22 +6038,17 @@ vmm_get_guest_cpu_mode(struct vcpu *vcpu)
  *
  * Exit handler for IN/OUT instructions.
  *
- * The vmm can handle certain IN/OUTS without exiting to vmd, but most of these
- * will be passed to vmd for completion.
- *
  * Parameters:
  *  vcpu: The VCPU where the IN/OUT instruction occurred
  *
  * Return values:
  *  0: if successful
  *  EINVAL: an invalid IN/OUT instruction was encountered
- *  EAGAIN: return to vmd - more processing needed in userland
  */
 int
 svm_handle_inout(struct vcpu *vcpu)
 {
 	uint64_t insn_length, exit_qual;
-	int ret;
 	struct vmcb *vmcb = (struct vmcb *)vcpu->vc_control_va;
 
 	insn_length = vmcb->v_exitinfo2 - vmcb->v_rip;
@@ -6023,7 +6061,10 @@ svm_handle_inout(struct vcpu *vcpu)
 	exit_qual = vmcb->v_exitinfo1;
 
 	/* Bit 0 - direction */
-	vcpu->vc_exit.vei.vei_dir = (exit_qual & 0x1);
+	if (exit_qual & 0x1)
+		vcpu->vc_exit.vei.vei_dir = VEI_DIR_IN;
+	else
+		vcpu->vc_exit.vei.vei_dir = VEI_DIR_OUT;
 	/* Bit 2 - string instruction? */
 	vcpu->vc_exit.vei.vei_string = (exit_qual & 0x4) >> 2;
 	/* Bit 3 - REP prefix? */
@@ -6042,54 +6083,12 @@ svm_handle_inout(struct vcpu *vcpu)
 	/* Data */
 	vcpu->vc_exit.vei.vei_data = vmcb->v_rax;
 
+	TRACEPOINT(vmm, inout, vcpu, vcpu->vc_exit.vei.vei_port,
+	    vcpu->vc_exit.vei.vei_dir, vcpu->vc_exit.vei.vei_data);
+
 	vcpu->vc_gueststate.vg_rip += insn_length;
 
-	/*
-	 * The following ports usually belong to devices owned by vmd.
-	 * Return EAGAIN to signal help needed from userspace (vmd).
-	 * Return 0 to indicate we don't care about this port.
-	 *
-	 * XXX something better than a hardcoded list here, maybe
-	 * configure via vmd via the device list in vm create params?
-	 */
-	switch (vcpu->vc_exit.vei.vei_port) {
-	case IO_ICU1 ... IO_ICU1 + 1:
-	case 0x40 ... 0x43:
-	case PCKBC_AUX:
-	case IO_RTC ... IO_RTC + 1:
-	case IO_ICU2 ... IO_ICU2 + 1:
-	case 0x3f8 ... 0x3ff:
-	case ELCR0 ... ELCR1:
-	case 0x500 ... 0x511:
-	case 0x514:
-	case 0x518:
-	case 0xcf8:
-	case 0xcfc ... 0xcff:
-	case VMM_PCI_IO_BAR_BASE ... VMM_PCI_IO_BAR_END:
-		ret = EAGAIN;
-		break;
-	default:
-		/* Read from unsupported ports returns FFs */
-		if (vcpu->vc_exit.vei.vei_dir == 1) {
-			switch(vcpu->vc_exit.vei.vei_size) {
-			case 1:
-				vcpu->vc_gueststate.vg_rax |= 0xFF;
-				vmcb->v_rax |= 0xFF;
-				break;
-			case 2:
-				vcpu->vc_gueststate.vg_rax |= 0xFFFF;
-				vmcb->v_rax |= 0xFFFF;
-				break;
-			case 4:
-				vcpu->vc_gueststate.vg_rax |= 0xFFFFFFFF;
-				vmcb->v_rax |= 0xFFFFFFFF;
-				break;
-			}
-		}
-		ret = 0;
-	}
-
-	return (ret);
+	return (0);
 }
 
 /*
@@ -6097,14 +6096,17 @@ svm_handle_inout(struct vcpu *vcpu)
  *
  * Exit handler for IN/OUT instructions.
  *
- * The vmm can handle certain IN/OUTS without exiting to vmd, but most of these
- * will be passed to vmd for completion.
+ * Parameters:
+ *  vcpu: The VCPU where the IN/OUT instruction occurred
+ *
+ * Return values:
+ *  0: if successful
+ *  EINVAL: invalid IN/OUT instruction or vmread failures occurred
  */
 int
 vmx_handle_inout(struct vcpu *vcpu)
 {
 	uint64_t insn_length, exit_qual;
-	int ret;
 
 	if (vmread(VMCS_INSTRUCTION_LENGTH, &insn_length)) {
 		printf("%s: can't obtain instruction length\n", __func__);
@@ -6125,7 +6127,10 @@ vmx_handle_inout(struct vcpu *vcpu)
 	/* Bits 0:2 - size of exit */
 	vcpu->vc_exit.vei.vei_size = (exit_qual & 0x7) + 1;
 	/* Bit 3 - direction */
-	vcpu->vc_exit.vei.vei_dir = (exit_qual & 0x8) >> 3;
+	if ((exit_qual & 0x8) >> 3)
+		vcpu->vc_exit.vei.vei_dir = VEI_DIR_IN;
+	else
+		vcpu->vc_exit.vei.vei_dir = VEI_DIR_OUT;
 	/* Bit 4 - string instruction? */
 	vcpu->vc_exit.vei.vei_string = (exit_qual & 0x10) >> 4;
 	/* Bit 5 - REP prefix? */
@@ -6137,46 +6142,12 @@ vmx_handle_inout(struct vcpu *vcpu)
 	/* Data */
 	vcpu->vc_exit.vei.vei_data = (uint32_t)vcpu->vc_gueststate.vg_rax;
 
+	TRACEPOINT(vmm, inout, vcpu, vcpu->vc_exit.vei.vei_port,
+	    vcpu->vc_exit.vei.vei_dir, vcpu->vc_exit.vei.vei_data);
+
 	vcpu->vc_gueststate.vg_rip += insn_length;
 
-	/*
-	 * The following ports usually belong to devices owned by vmd.
-	 * Return EAGAIN to signal help needed from userspace (vmd).
-	 * Return 0 to indicate we don't care about this port.
-	 *
-	 * XXX something better than a hardcoded list here, maybe
-	 * configure via vmd via the device list in vm create params?
-	 */
-	switch (vcpu->vc_exit.vei.vei_port) {
-	case IO_ICU1 ... IO_ICU1 + 1:
-	case 0x40 ... 0x43:
-	case PCKBC_AUX:
-	case IO_RTC ... IO_RTC + 1:
-	case IO_ICU2 ... IO_ICU2 + 1:
-	case 0x3f8 ... 0x3ff:
-	case ELCR0 ... ELCR1:
-	case 0x500 ... 0x511:
-	case 0x514:
-	case 0x518:
-	case 0xcf8:
-	case 0xcfc ... 0xcff:
-	case VMM_PCI_IO_BAR_BASE ... VMM_PCI_IO_BAR_END:
-		ret = EAGAIN;
-		break;
-	default:
-		/* Read from unsupported ports returns FFs */
-		if (vcpu->vc_exit.vei.vei_dir == VEI_DIR_IN) {
-			if (vcpu->vc_exit.vei.vei_size == 4)
-				vcpu->vc_gueststate.vg_rax |= 0xFFFFFFFF;
-			else if (vcpu->vc_exit.vei.vei_size == 2)
-				vcpu->vc_gueststate.vg_rax |= 0xFFFF;
-			else if (vcpu->vc_exit.vei.vei_size == 1)
-				vcpu->vc_gueststate.vg_rax |= 0xFF;
-		}
-		ret = 0;
-	}
-
-	return (ret);
+	return (0);
 }
 
 /*
@@ -7321,7 +7292,19 @@ vcpu_run_svm(struct vcpu *vcpu, struct vm_run_params *vrp)
 				    vcpu->vc_exit.vei.vei_data;
 				vmcb->v_rax = vcpu->vc_gueststate.vg_rax;
 			}
+			break;
+		case SVM_VMEXIT_NPF:
+			ret = vcpu_writeregs_svm(vcpu, VM_RWREGS_GPRS,
+			    &vcpu->vc_exit.vrs);
+			if (ret) {
+				printf("%s: vm %d vcpu %d failed to update "
+				    "registers\n", __func__,
+				    vcpu->vc_parent->vm_id, vcpu->vc_id);
+				return (EINVAL);
+			}
+			break;
 		}
+		memset(&vcpu->vc_exit, 0, sizeof(vcpu->vc_exit));
 	}
 
 	while (ret == 0) {

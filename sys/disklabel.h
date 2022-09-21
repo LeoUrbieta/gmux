@@ -1,4 +1,4 @@
-/*	$OpenBSD: disklabel.h,v 1.78 2021/05/08 16:41:25 krw Exp $	*/
+/*	$OpenBSD: disklabel.h,v 1.80 2022/09/06 14:14:44 krw Exp $	*/
 /*	$NetBSD: disklabel.h,v 1.41 1996/05/10 23:07:37 mark Exp $	*/
 
 /*
@@ -117,8 +117,8 @@ struct disklabel {
 
 			/* filesystem and partition information: */
 	u_int16_t d_npartitions;	/* number of partitions in following */
-	u_int32_t d_bbsize;		/* size of boot area at sn0, bytes */
-	u_int32_t d_sbsize;		/* max size of fs superblock, bytes */
+	u_int32_t d_spare2;
+	u_int32_t d_spare3;
 	struct	partition {		/* the partition table */
 		u_int32_t p_size;	/* number of sectors (low part) */
 		u_int32_t p_offset;	/* starting sector (low part) */
@@ -323,26 +323,6 @@ static char *fstypesnames[] = {
  */
 #define		D_BADSECT	0x04		/* supports bad sector forw. */
 #define		D_VENDOR	0x08		/* vendor disklabel */
-
-/*
- * Drive data for SMD.
- */
-#define	d_smdflags	d_drivedata[0]
-#define		D_SSE		0x1		/* supports skip sectoring */
-#define	d_mindist	d_drivedata[1]
-#define	d_maxdist	d_drivedata[2]
-#define	d_sdist		d_drivedata[3]
-
-/*
- * Drive data for ST506.
- */
-#define d_precompcyl	d_drivedata[0]
-#define d_gap3		d_drivedata[1]		/* used only when formatting */
-
-/*
- * Drive data for SCSI.
- */
-#define	d_blind		d_drivedata[0]
 
 #ifndef _LOCORE
 /*

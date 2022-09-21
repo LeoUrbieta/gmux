@@ -1,5 +1,4 @@
 /acpi_machdep.c/1.85/Mon Feb 21 10:24:28 2022//
-/acpi_wakecode.S/1.32/Sun Jan  2 03:41:08 2022//
 /acpiapm.c/1.2/Fri Apr  3 08:24:52 2020//
 /amd64errata.c/1.12/Sat Mar 31 22:52:30 2018//
 /amdmsr.c/1.11/Mon Feb 21 10:24:28 2022//
@@ -7,7 +6,6 @@
 /apicvec.s/1.35/Mon Jun 18 23:15:05 2018//
 /apm.c/1.127/Mon Feb 21 10:24:28 2022//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
-/autoconf.c/1.106/Sun Dec  8 12:25:30 2019//
 /bios.c/1.127/Mon Feb 21 10:24:28 2022//
 /bus_dma.c/1.35/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
@@ -25,7 +23,6 @@
 /est.c/1.54/Tue Aug 17 19:44:01 2021//
 /gdt.c/1.43/Fri Jun 22 13:21:14 2018//
 /genassym.cf/1.48/Tue Jun 11 15:23:41 2019//
-/hibernate_machdep.c/1.58/Mon Jan 17 02:54:28 2022//
 /i686_mem.c/1.19/Mon Jul 30 14:19:12 2018//
 /in_cksum.s/1.9/Thu Jun 29 17:17:28 2017//
 /ioapic.c/1.43/Mon Feb 21 10:24:28 2022//
@@ -38,7 +35,6 @@
 /mp_setperf.c/1.6/Fri Sep 12 09:52:45 2014//
 /mpbios.c/1.44/Mon Feb 21 10:24:28 2022//
 /mpbios_intr_fixup.c/1.6/Mon Aug 10 12:12:42 2015//
-/mptramp.s/1.25/Sat Mar 31 13:45:03 2018//
 /mtrr.c/1.13/Thu Dec 19 21:30:02 2013//
 /nvram.c/1.6/Mon Mar  7 05:32:47 2016//
 /p4tcc.c/1.19/Sun Sep 14 14:17:23 2014//
@@ -56,12 +52,16 @@
 /via.c/1.50/Sun Oct 24 10:26:22 2021//
 /vm_machdep.c/1.72/Mon Feb 21 19:18:52 2022//
 /wscons_machdep.c/1.19/Mon Mar  7 05:32:47 2016//
-/conf.c/1.173/Sun Jul  3 00:30:37 2022//
 /pmap.c/1.219/Sun Jul  3 00:30:37 2022//
 /pmapae.c/1.67/Sun Jul  3 00:30:37 2022//
 /cpu.c/1.109/Sun Aug 21 22:31:50 2022//
-/lapic.c/1.49/Sun Aug 21 22:31:50 2022//
-/locore.s/1.195/Sun Aug 21 22:31:50 2022//
-/locore0.S/1.8/Sun Aug 21 22:31:50 2022//
-/machdep.c/1.654/Sun Aug 21 22:31:50 2022//
+/acpi_wakecode.S/1.33/Fri Sep  9 15:06:16 2022//
+/autoconf.c/1.108/Fri Sep  9 15:06:16 2022//
+/conf.c/1.174/Fri Sep  9 15:06:16 2022//
+/hibernate_machdep.c/1.59/Fri Sep  9 15:06:16 2022//
+/lapic.c/1.51/Fri Sep  9 15:06:16 2022//
+/locore.s/1.197/Fri Sep  9 15:06:16 2022//
+/locore0.S/1.9/Fri Sep  9 15:06:16 2022//
+/machdep.c/1.656/Fri Sep  9 15:06:16 2022//
+/mptramp.s/1.26/Fri Sep  9 15:06:16 2022//
 D

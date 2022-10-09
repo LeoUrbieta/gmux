@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_disk.c,v 1.260 2022/09/03 15:29:43 kettenis Exp $	*/
+/*	$OpenBSD: subr_disk.c,v 1.264 2022/09/23 12:32:50 krw Exp $	*/
 /*	$NetBSD: subr_disk.c,v 1.17 1996/03/16 23:17:08 christos Exp $	*/
 
 /*
@@ -330,30 +330,25 @@ readdoslabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 
 #ifdef DEBUG
 	char			 devname[32];
+	const char		*blkname;
 
-	switch (major(bp->b_dev)) {
-	case 13:
-	case 4:
-		snprintf(devname, sizeof(devname), "sd%d",
-		    minor(bp->b_dev) / MAXPARTITIONS);
-		break;
-	case 41:
-	case 14:
-		snprintf(devname, sizeof(devname), "vnd%d",
-		    minor(bp->b_dev) / MAXPARTITIONS);
-		break;
-	default:
-		snprintf(devname, sizeof(devname), "<%d,%d>",
-		    major(bp->b_dev), minor(bp->b_dev));
-		break;
-	}
-	printf("readdoslabel(new) enter: %s, spoofonly %d, partoffp %sNULL\n",
+	blkname = findblkname(major(bp->b_dev));
+	if (blkname == NULL)
+		 blkname = findblkname(major(chrtoblk(bp->b_dev)));
+	if (blkname == NULL)
+		snprintf(devname, sizeof(devname), "<%d, %d>", major(bp->b_dev),
+		    minor(bp->b_dev));
+	else
+		snprintf(devname, sizeof(devname), "%s%d", blkname,
+		    DISKUNIT(bp->b_dev));
+
+	printf("readdoslabel enter: %s, spoofonly %d, partoffp %sNULL\n",
 	    devname, spoofonly, (partoffp == NULL) ? "" : "not ");
 #endif /* DEBUG */
 
 	error = readdisksector(bp, strat, lp, DOSBBSECTOR);
 	if (error) {
-		DPRINTF("readdoslabel(new) return: %s, %d -- lp unchanged, "
+		DPRINTF("readdoslabel return: %s, %d -- lp unchanged, "
 		    "DOSBBSECTOR read error\n", devname, error);
 		return error;
 	}
@@ -372,7 +367,7 @@ readdoslabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 	if (nlp.d_magic != DISKMAGIC)
 		spooffat(dosbb, &nlp, &partoff);
 	if (nlp.d_magic != DISKMAGIC) {
-		DPRINTF("readdoslabel(new): N/A -- label partition @ "
+		DPRINTF("readdoslabel: N/A -- label partition @ "
 		    "daddr_t 0 (default)\n");
 		partoff = 0;
 	}
@@ -384,12 +379,12 @@ readdoslabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 		 * lp is copied into it. So leave lp alone!
 		 */
 		if (partoff == -1) {
-			DPRINTF("readdoslabel(new) return: %s, ENXIO, lp "
+			DPRINTF("readdoslabel return: %s, ENXIO, lp "
 			    "unchanged, *partoffp unchanged\n", devname);
 			return ENXIO;
 		}
 		*partoffp = partoff;
-		DPRINTF("readdoslabel(new) return: %s, 0, lp unchanged, "
+		DPRINTF("readdoslabel return: %s, 0, lp unchanged, "
 		    "*partoffp set to %lld\n", devname, *partoffp);
 		return 0;
 	}
@@ -400,7 +395,7 @@ readdoslabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 	lp->d_checksum = dkcksum(lp);
 
 	if (spoofonly || partoff == -1) {
-		DPRINTF("readdoslabel(new) return: %s, 0, lp spoofed\n",
+		DPRINTF("readdoslabel return: %s, 0, lp spoofed\n",
 		    devname);
 		return 0;
 	}
@@ -408,7 +403,7 @@ readdoslabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 	partoff += DOS_LABELSECTOR;
 	error = readdisksector(bp, strat, lp, DL_BLKTOSEC(lp, partoff));
 	if (error) {
-		DPRINTF("readdoslabel(new) return: %s, %d, lp read failed\n",
+		DPRINTF("readdoslabel return: %s, %d, lp read failed\n",
 		    devname, error);
 		return bp->b_error;
 	}
@@ -416,7 +411,7 @@ readdoslabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 	rlp = (struct disklabel *)(bp->b_data + DL_BLKOFFSET(lp, partoff));
 	error = checkdisklabel(rlp, lp, DL_GETBSTART(rlp), DL_GETBEND(rlp));
 
-	DPRINTF("readdoslabel(new) return: %s, %d, checkdisklabel() of daddr_t "
+	DPRINTF("readdoslabel return: %s, %d, checkdisklabel() of daddr_t "
 	    "%lld %s\n", devname, error, partoff, error ? "failed" : "ok");
 
 	return error;
@@ -641,6 +636,12 @@ spoofgpt(struct buf *bp, void (*strat)(struct buf *), const uint8_t *dosbb,
 	partoff = DL_SECTOBLK(lp, lbastart);
 	obsdfound = 0;
 	for (i = 0; i < partnum; i++) {
+		if (letoh64(gp[i].gp_attrs) & GPTPARTATTR_REQUIRED) {
+			DPRINTF("spoofgpt: Skipping partition %u (REQUIRED)\n",
+			    i);
+			continue;
+		}
+
 		start = letoh64(gp[i].gp_lba_start);
 		if (start > lbaend || start < lbastart)
 			continue;
@@ -685,7 +686,7 @@ spoofgpt(struct buf *bp, void (*strat)(struct buf *), const uint8_t *dosbb,
 	free(gp, M_DEVBUF, gpbytes);
 
 #ifdef DEBUG
-	printf("readdoslabel(new): GPT -- ");
+	printf("readdoslabel: GPT -- ");
 	if (partoff == -1)
 		printf("no label partition\n");
 	else if (obsdfound == 0)
@@ -823,7 +824,7 @@ spoofmbr(struct buf *bp, void (*strat)(struct buf *), const uint8_t *dosbb,
 		lp->d_magic = DISKMAGIC;
 		*partoffp = partoff;
 #ifdef DEBUG
-	printf("readdoslabel(new): MBR -- ");
+	printf("readdoslabel: MBR -- ");
 	if (partoff == -1)
 		printf("no label partition\n");
 	else if (obsdfound == 0)
@@ -851,7 +852,7 @@ spooffat(const uint8_t *dosbb, struct disklabel *lp, daddr_t *partoffp)
 		lp->d_partitions['i' - 'a'].p_fstype = FS_MSDOS;
 		*partoffp = -1;
 		lp->d_magic = DISKMAGIC;
-		DPRINTF("readdoslabel(new): FAT -- no label partition\n");
+		DPRINTF("readdoslabel: FAT -- no label partition\n");
 	}
 }
 
@@ -1125,7 +1126,6 @@ disk_attach_callback(void *xdat)
 	/* Read disklabel. */
 	if (disk_readlabel(&dl, dk->dk_devno, errbuf, sizeof(errbuf)) == NULL) {
 		enqueue_randomness(dl.d_checksum);
-		dk->dk_flags |= DKF_LABELVALID;
 	}
 
 done:
@@ -1444,14 +1444,14 @@ setroot(struct device *bootdv, int part, int exitflags)
 		TAILQ_FOREACH(dk, &disklist, dk_link)
 			if (dk->dk_device == bootdv)
 				break;
-		if (dk && (dk->dk_flags & DKF_LABELVALID))
+		if (dk)
 			bcopy(dk->dk_label->d_uid, bootduid, sizeof(bootduid));
 	} else if (bootdv == NULL) {
 		/* Locate boot disk based on the provided DUID. */
 		TAILQ_FOREACH(dk, &disklist, dk_link)
 			if (duid_equal(dk->dk_label->d_uid, bootduid))
 				break;
-		if (dk && (dk->dk_flags & DKF_LABELVALID))
+		if (dk)
 			bootdv = dk->dk_device;
 	}
 	bcopy(bootduid, rootduid, sizeof(rootduid));
@@ -1565,8 +1565,7 @@ gotswap:
 		if (bootdv->dv_class == DV_DISK) {
 			if (!duid_iszero(rootduid)) {
 				TAILQ_FOREACH(dk, &disklist, dk_link)
-					if ((dk->dk_flags & DKF_LABELVALID) &&
-					    dk->dk_label && duid_equal(
+					if (dk->dk_label && duid_equal(
 					    dk->dk_label->d_uid, rootduid))
 						break;
 				if (dk == NULL)
@@ -1792,7 +1791,8 @@ disk_map(char *path, char *mappath, int size, int flags)
 
 	mdk = NULL;
 	TAILQ_FOREACH(dk, &disklist, dk_link) {
-		if ((dk->dk_flags & DKF_LABELVALID) && dk->dk_label &&
+		if (dk->dk_label &&
+		    !duid_iszero(dk->dk_label->d_uid) &&
 		    memcmp(dk->dk_label->d_uid, uid,
 		    sizeof(dk->dk_label->d_uid)) == 0) {
 			/* Fail if there are duplicate UIDs! */

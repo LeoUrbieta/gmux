@@ -144,7 +144,6 @@
 /utwitch.c/1.22/Mon Nov 15 15:36:24 2021//
 /uvideo.h/1.60/Sun Dec  8 13:21:21 2019//
 /uvisor.c/1.53/Sat Apr  9 20:07:44 2022//
-/uwacom.c/1.5/Mon Nov 22 11:29:18 2021//
 /uxrcom.c/1.3/Sat Apr  9 20:07:44 2022//
 /xhcireg.h/1.18/Sun Jan  9 05:43:02 2022//
 D/dwc2////
@@ -170,17 +169,18 @@ D/dwc2////
 /xhci.c/1.126/Sun Jul 31 23:28:53 2022//
 /xhcivar.h/1.13/Sun Jul 31 23:28:53 2022//
 /uhidev.c/1.108/Mon Aug  1 08:07:44 2022//
-/ukbd.c/1.86/Wed Aug  3 16:21:52 2022//
 /ukbdmap.c/1.46/Wed Aug  3 15:40:13 2022//
 /if_urtwn.c/1.103/Sun Aug 21 22:32:04 2022//
-/ucc.c/1.35/Result of merge//
 /uhidpp.c/1.27/Sun Aug 21 22:32:04 2022//
 /uvideo.c/1.218/Sun Aug 21 22:32:04 2022//
 /if_uaq.c/1.5/Fri Sep  9 15:06:33 2022//
 /uhub.c/1.97/Fri Sep  9 15:06:33 2022//
 /umass.c/1.81/Fri Sep  9 15:06:33 2022//
 /umsm.c/1.122/Fri Sep  9 15:06:33 2022//
-/usbdevs/1.748/Fri Sep  9 15:06:33 2022//
-/usbdevs.h/1.760/Fri Sep  9 15:06:33 2022//
-/usbdevs_data.h/1.754/Fri Sep  9 15:06:33 2022//
 /usbdivar.h/1.83/Fri Sep  9 15:06:33 2022//
+/ucc.c/1.35/Tue Oct  4 15:19:42 2022//
+/ukbd.c/1.88/Thu Oct  6 16:59:18 2022//
+/usbdevs/1.750/Sun Oct  9 12:24:12 2022//
+/usbdevs.h/1.762/Sun Oct  9 12:24:12 2022//
+/usbdevs_data.h/1.756/Sun Oct  9 12:24:12 2022//
+/uwacom.c/1.7/Sun Oct  9 12:24:12 2022//

@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.72 2022/09/05 19:18:56 kettenis Exp $ */
+/* $OpenBSD: machdep.c,v 1.74 2022/10/04 19:41:21 kettenis Exp $ */
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2021 Mark Kettenis <kettenis@openbsd.org>
@@ -49,7 +49,7 @@
 #include <machine/db_machdep.h>
 #include <ddb/db_extern.h>
 
-#include <dev/acpi/efi.h>
+#include <dev/efi/efi.h>
 
 #include "softraid.h"
 #if NSOFTRAID > 0
@@ -433,7 +433,7 @@ setregs(struct proc *p, struct exec_package *pack, u_long stack,
 	tf->tf_sp = stack;
 	tf->tf_lr = pack->ep_entry;
 	tf->tf_elr = pack->ep_entry; /* ??? */
-	tf->tf_spsr = PSR_M_EL0t;
+	tf->tf_spsr = PSR_M_EL0t | PSR_DIT;
 
 	retval[1] = 0;
 }

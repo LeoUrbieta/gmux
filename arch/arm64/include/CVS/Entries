@@ -45,8 +45,8 @@
 /vmparam.h/1.7/Sat Jun  1 18:38:27 2019//
 /conf.h/1.4/Sun Jul  3 00:30:35 2022//
 /intr.h/1.19/Sun Jul 31 23:28:36 2022//
-/armreg.h/1.21/Fri Sep  9 15:06:15 2022//
 /asm.h/1.10/Fri Sep  9 15:06:15 2022//
 /atomic.h/1.4/Fri Sep  9 15:06:15 2022//
 /cpu.h/1.28/Fri Sep  9 15:06:15 2022//
+/armreg.h/1.22/Thu Oct  6 16:59:01 2022//
 D

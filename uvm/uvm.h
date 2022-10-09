@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm.h,v 1.69 2022/05/04 14:58:26 mpi Exp $	*/
+/*	$OpenBSD: uvm.h,v 1.71 2022/10/07 05:01:44 deraadt Exp $	*/
 /*	$NetBSD: uvm.h,v 1.24 2000/11/27 08:40:02 chs Exp $	*/
 
 /*
@@ -81,8 +81,6 @@ struct uvm {
 
 /*
  * vm_map_entry etype bits:
- *
- * keep in sync with KVM_ET_*
  */
 #define UVM_ET_OBJ		0x0001	/* it is a uvm_object */
 #define UVM_ET_SUBMAP		0x0002	/* it is a vm_map submap */
@@ -94,6 +92,7 @@ struct uvm {
 #define UVM_ET_WC		0x0080	/* write combining */
 #define UVM_ET_CONCEAL		0x0100	/* omit from dumps */
 #define UVM_ET_SYSCALL		0x0200	/* syscall text segment */
+#define UVM_ET_IMMUTABLE	0x0400	/* entry may not be changed */
 #define UVM_ET_FREEMAPPED	0x8000	/* map entry is on free list (DEBUG) */
 
 #define UVM_ET_ISOBJ(E)		(((E)->etype & UVM_ET_OBJ) != 0)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2.c,v 1.65 2022/09/05 20:11:44 mglocker Exp $	*/
+/*	$OpenBSD: dwc2.c,v 1.68 2022/09/18 21:12:19 mglocker Exp $	*/
 /*	$NetBSD: dwc2.c,v 1.32 2014/09/02 23:26:20 macallan Exp $	*/
 
 /*-
@@ -230,11 +230,8 @@ dwc2_allocx(struct usbd_bus *bus)
 	DPRINTFN(10, "\n");
 
 	DWC2_EVCNT_INCR(sc->sc_ev_xferpoolget);
-	dxfer = pool_get(&sc->sc_xferpool, PR_WAITOK);
+	dxfer = pool_get(&sc->sc_xferpool, PR_NOWAIT | PR_ZERO);
 	if (dxfer != NULL) {
-		memset(dxfer, 0, sizeof(*dxfer));
-		dxfer->urb = dwc2_hcd_urb_alloc(sc->sc_hsotg,
-		    DWC2_MAXISOCPACKETS, M_NOWAIT);
 #ifdef DIAGNOSTIC
 		dxfer->xfer.busy_free = XFER_ONQU;
 #endif
@@ -245,7 +242,6 @@ dwc2_allocx(struct usbd_bus *bus)
 void
 dwc2_freex(struct usbd_bus *bus, struct usbd_xfer *xfer)
 {
-	struct dwc2_xfer *dxfer = DWC2_XFER2DXFER(xfer);
 	struct dwc2_softc *sc = DWC2_BUS2SC(bus);
 
 	DPRINTFN(10, "\n");
@@ -258,7 +254,6 @@ dwc2_freex(struct usbd_bus *bus, struct usbd_xfer *xfer)
 	xfer->busy_free = XFER_FREE;
 #endif
 	DWC2_EVCNT_INCR(sc->sc_ev_xferpoolput);
-	dwc2_hcd_urb_free(sc->sc_hsotg, dxfer->urb, DWC2_MAXISOCPACKETS);
 	pool_put(&sc->sc_xferpool, xfer);
 }
 
@@ -1104,13 +1099,13 @@ dwc2_device_start(struct usbd_xfer *xfer)
 		len = xfer->length;
 	}
 
+	dxfer->urb = dwc2_hcd_urb_alloc(sc->sc_hsotg, xfer->nframes, M_NOWAIT);
 	dwc2_urb = dxfer->urb;
 	if (!dwc2_urb)
 		return USBD_NOMEM;
 
-//	KASSERT(dwc2_urb->packet_count == xfer->nframes);
 	memset(dwc2_urb, 0, sizeof(*dwc2_urb) +
-	    sizeof(dwc2_urb->iso_descs[0]) * DWC2_MAXISOCPACKETS);
+	    sizeof(dwc2_urb->iso_descs[0]) * xfer->nframes);
 
 	dwc2_urb->priv = xfer;
 	dwc2_urb->packet_count = xfer->nframes;
@@ -1182,8 +1177,6 @@ dwc2_device_start(struct usbd_xfer *xfer)
 
 	xfer->actlen = 0;
 
-	KASSERT(xfertype != UE_ISOCHRONOUS ||
-	    xfer->nframes <= DWC2_MAXISOCPACKETS);
 	KASSERTMSG(xfer->nframes == 0 || xfertype == UE_ISOCHRONOUS,
 	    "nframes %d xfertype %d\n", xfer->nframes, xfertype);
 
@@ -1212,12 +1205,11 @@ dwc2_device_start(struct usbd_xfer *xfer)
 		qh_allocated = true;
 	}
 
-	qtd = pool_get(&sc->sc_qtdpool, PR_NOWAIT);
+	qtd = pool_get(&sc->sc_qtdpool, PR_NOWAIT | PR_ZERO);
 	if (!qtd) {
 		retval = -ENOMEM;
 		goto fail1;
 	}
-	memset(qtd, 0, sizeof(*qtd));
 
 	/* might need to check cpu_intr_p */
 	mtx_enter(&hsotg->lock);

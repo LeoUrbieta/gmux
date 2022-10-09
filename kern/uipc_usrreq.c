@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_usrreq.c,v 1.185 2022/09/03 22:43:38 mvs Exp $	*/
+/*	$OpenBSD: uipc_usrreq.c,v 1.190 2022/10/03 16:43:52 bluhm Exp $	*/
 /*	$NetBSD: uipc_usrreq.c,v 1.18 1996/02/09 19:00:50 christos Exp $	*/
 
 /*
@@ -242,7 +242,7 @@ const struct sysctl_bounded_args unpdgctl_vars[] = {
 };
 
 int
-uipc_attach(struct socket *so, int proto)
+uipc_attach(struct socket *so, int proto, int wait)
 {
 	struct unpcb *unp;
 	int error;
@@ -270,7 +270,8 @@ uipc_attach(struct socket *so, int proto)
 		if (error)
 			return (error);
 	}
-	unp = pool_get(&unpcb_pool, PR_NOWAIT|PR_ZERO);
+	unp = pool_get(&unpcb_pool, (wait == M_WAIT ? PR_WAITOK : PR_NOWAIT) |
+	    PR_ZERO);
 	if (unp == NULL)
 		return (ENOBUFS);
 	refcnt_init(&unp->unp_refcnt);
@@ -363,7 +364,7 @@ uipc_shutdown(struct socket *so)
 	return (0);
 }
 
-int
+void
 uipc_rcvd(struct socket *so)
 {
 	struct socket *so2;
@@ -390,8 +391,6 @@ uipc_rcvd(struct socket *so)
 	default:
 		panic("uipc 2");
 	}
-
-	return (0);
 }
 
 int
@@ -736,6 +735,7 @@ unp_bind(struct unpcb *unp, struct mbuf *nam, struct proc *p)
 	NDINIT(&nd, CREATE, NOFOLLOW | LOCKPARENT, UIO_SYSSPACE,
 	    soun->sun_path, p);
 	nd.ni_pledge = PLEDGE_UNIX;
+	nd.ni_unveil = UNVEIL_CREATE;
 
 	KERNEL_LOCK();
 /* SHOULD BE ABLE TO ADOPT EXISTING AND wakeup() ALA FIFO's */
@@ -803,6 +803,7 @@ unp_connect(struct socket *so, struct mbuf *nam, struct proc *p)
 
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_SYSSPACE, soun->sun_path, p);
 	nd.ni_pledge = PLEDGE_UNIX;
+	nd.ni_unveil = UNVEIL_WRITE;
 
 	unp->unp_flags |= UNP_CONNECTING;
 
@@ -839,7 +840,7 @@ unp_connect(struct socket *so, struct mbuf *nam, struct proc *p)
 		solock(so2);
 
 		if ((so2->so_options & SO_ACCEPTCONN) == 0 ||
-		    (so3 = sonewconn(so2, 0)) == NULL) {
+		    (so3 = sonewconn(so2, 0, M_WAIT)) == NULL) {
 			error = ECONNREFUSED;
 		}
 
@@ -995,13 +996,6 @@ unp_shutdown(struct unpcb *unp)
 		break;
 	}
 }
-
-#ifdef notdef
-unp_drain(void)
-{
-
-}
-#endif
 
 static struct unpcb *
 fptounp(struct file *fp)

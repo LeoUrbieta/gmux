@@ -33,7 +33,7 @@
 
 #define DEVNAME(sc)	((sc)->sc_hdev.sc_dev.dv_xname)
 
-/* #define UCC_DEBUG */ 
+/* #define UCC_DEBUG */
 #ifdef UCC_DEBUG
 #define DPRINTF(x...)	do { if (ucc_debug) printf(x); } while (0)
 struct ucc_softc;

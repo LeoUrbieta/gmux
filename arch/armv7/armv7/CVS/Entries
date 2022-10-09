@@ -1,5 +1,4 @@
 /armv7.c/1.19/Fri Apr  2 03:02:46 2021//
-/armv7_machdep.c/1.64/Wed Oct  6 12:50:10 2021//
 /armv7_machdep.h/1.14/Sun May 16 03:39:28 2021//
 /armv7_start.S/1.17/Mon May  6 03:32:48 2019//
 /armv7var.h/1.18/Fri Apr  2 03:02:46 2021//
@@ -8,4 +7,5 @@
 /platform.c/1.27/Sun May 16 03:39:28 2021//
 /intr.c/1.21/Sun Jul 31 23:28:36 2022//
 /autoconf.c/1.12/Fri Sep  9 15:06:15 2022//
+/armv7_machdep.c/1.65/Tue Oct  4 07:37:12 2022//
 D

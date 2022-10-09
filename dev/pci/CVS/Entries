@@ -97,7 +97,6 @@
 /if_atw_pci.c/1.19/Fri Mar 11 18:00:45 2022//
 /if_bce.c/1.55/Fri Mar 11 18:00:45 2022//
 /if_bcereg.h/1.3/Wed Nov  8 01:32:00 2006//
-/if_bge.c/1.398/Fri Mar 11 18:00:45 2022//
 /if_bgereg.h/1.135/Sun Jan  9 05:42:46 2022//
 /if_bnx.c/1.132/Fri Mar 11 18:00:45 2022//
 /if_bnxreg.h/1.50/Sun Jan  9 05:42:47 2022//
@@ -139,7 +138,6 @@
 /if_jme.c/1.56/Fri Mar 11 18:00:45 2022//
 /if_jmereg.h/1.5/Sun Jan  9 05:42:54 2022//
 /if_jmevar.h/1.6/Sat Dec  7 07:22:37 2013//
-/if_lge.c/1.78/Fri Mar 11 18:00:45 2022//
 /if_lgereg.h/1.8/Wed Aug 20 01:00:15 2014//
 /if_lii.c/1.46/Fri Mar 11 18:00:45 2022//
 /if_liireg.h/1.4/Mon Sep  1 14:38:31 2008//
@@ -153,7 +151,6 @@
 /if_nfe.c/1.124/Fri Mar 11 18:00:48 2022//
 /if_nfereg.h/1.22/Wed Dec  5 08:30:33 2007//
 /if_nfevar.h/1.17/Wed Aug 20 01:02:50 2014//
-/if_nge.c/1.96/Fri Mar 11 18:00:48 2022//
 /if_ngereg.h/1.10/Wed Aug 20 00:59:56 2014//
 /if_nxe.c/1.79/Fri Mar 11 18:00:48 2022//
 /if_oce.c/1.106/Fri Mar 11 18:00:48 2022//
@@ -187,7 +184,6 @@
 /if_vgereg.h/1.3/Sun Jan  9 05:42:56 2022//
 /if_vgevar.h/1.5/Fri Mar 15 01:33:23 2013//
 /if_vic.c/1.104/Fri Mar 11 18:00:50 2022//
-/if_vmx.c/1.69/Fri Mar 11 18:00:50 2022//
 /if_vmxreg.h/1.9/Tue Jul  7 01:36:49 2020//
 /if_vr.c/1.159/Fri Mar 11 18:00:50 2022//
 /if_vrreg.h/1.37/Tue Oct 20 17:08:39 2015//
@@ -235,7 +231,6 @@
 /maestro.c/1.46/Mon Mar 21 19:22:41 2022//
 /mbg.c/1.33/Fri Mar 11 18:00:50 2022//
 /mfi_pci.c/1.31/Fri Mar 11 18:00:50 2022//
-/mfii.c/1.85/Sat Apr 16 19:19:59 2022//
 /mmuagp.c/1.8/Fri Mar 11 18:00:50 2022//
 /mpi_pci.c/1.26/Fri Mar 11 18:00:50 2022//
 /mpii.c/1.143/Sat Apr 16 19:19:59 2022//
@@ -353,9 +348,14 @@ D/drm////
 /if_ix.c/1.189/Fri Sep  9 15:06:25 2022//
 /if_mtd_pci.c/1.13/Fri Sep  9 15:06:25 2022//
 /if_tht.c/1.146/Fri Sep  9 15:06:25 2022//
-/pcidevs/1.2004/Fri Sep  9 15:06:26 2022//
-/pcidevs.h/1.1998/Fri Sep  9 15:06:26 2022//
-/pcidevs_data.h/1.1993/Fri Sep  9 15:06:26 2022//
 /pciide_natsemi_reg.h/1.9/Fri Sep  9 15:06:26 2022//
 /pciide_opti_reg.h/1.5/Fri Sep  9 15:06:26 2022//
 /yds.c/1.60/Fri Sep  9 15:06:26 2022//
+/if_vmx.c/1.70/Tue Oct  4 07:37:22 2022//
+/mfii.c/1.87/Tue Oct  4 07:37:22 2022//
+/pcidevs/1.2006/Tue Oct  4 07:37:22 2022//
+/pcidevs.h/1.2000/Tue Oct  4 07:37:22 2022//
+/pcidevs_data.h/1.1995/Tue Oct  4 07:37:23 2022//
+/if_bge.c/1.399/Sun Oct  9 12:24:07 2022//
+/if_lge.c/1.79/Sun Oct  9 12:24:07 2022//
+/if_nge.c/1.97/Sun Oct  9 12:24:07 2022//

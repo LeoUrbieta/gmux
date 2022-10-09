@@ -107,7 +107,6 @@
 /radeon_combios.c/1.18/Fri Jan 14 06:53:15 2022//
 /radeon_cs.c/1.12/Fri Jan 14 06:53:15 2022//
 /radeon_cursor.c/1.9/Wed Jul  7 02:38:37 2021//
-/radeon_device.c/1.26/Tue Feb 15 10:30:23 2022//
 /radeon_device.h/1.1/Fri Jan 14 06:53:15 2022//
 /radeon_devlist.h/1.4/Wed Apr 25 01:27:46 2018//
 /radeon_display.c/1.24/Fri Jan 14 06:53:15 2022//
@@ -218,3 +217,4 @@ D/reg_srcs////
 /radeon_connectors.c/1.18/Sun Jul  3 00:30:49 2022//
 /radeon_kms.c/1.90/Sun Jul 31 23:28:52 2022//
 /ni_dpm.c/1.7/Sun Aug 21 22:32:03 2022//
+/radeon_device.c/1.27/Tue Oct  4 07:37:27 2022//
